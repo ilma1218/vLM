@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -10,23 +10,45 @@ interface OCRRecord {
   extracted_text: string;
   cropped_image?: string;  // base64 encoded image
   timestamp: string;
+  page_number?: number;
+}
+
+interface FileGroup {
+  filename: string;
+  records: OCRRecord[];
+  total_records: number;
+  latest_timestamp: string;
+  first_timestamp?: string;  // 첫 번째 OCR 타임스탬프 (업로드 세션 구분용)
 }
 
 export default function MonitorPage() {
-  const [records, setRecords] = useState<OCRRecord[]>([]);
+  const [files, setFiles] = useState<FileGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [selectedRecord, setSelectedRecord] = useState<OCRRecord | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const fetchHistory = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${BACKEND_URL}/history`);
+      const response = await fetch(`${BACKEND_URL}/history?grouped=true`);
       if (!response.ok) {
         throw new Error('히스토리를 불러오는데 실패했습니다.');
       }
       const data = await response.json();
-      setRecords(data);
+      setFiles(data);
+      // 첫 번째 파일을 자동으로 확장
+      if (data.length > 0 && expandedFiles.size === 0) {
+        const firstGroupKey = data[0].first_timestamp 
+          ? `${data[0].filename}_${data[0].first_timestamp}` 
+          : data[0].filename;
+        setExpandedFiles(new Set([firstGroupKey]));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
@@ -34,9 +56,178 @@ export default function MonitorPage() {
     }
   };
 
+  const getGroupKey = (fileGroup: FileGroup): string => {
+    // 고유 그룹 키 생성 (파일명 + 첫 타임스탬프)
+    return fileGroup.first_timestamp 
+      ? `${fileGroup.filename}_${fileGroup.first_timestamp}` 
+      : fileGroup.filename;
+  };
+
+  const toggleFile = (fileGroup: FileGroup) => {
+    const groupKey = getGroupKey(fileGroup);
+    const newExpanded = new Set(expandedFiles);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedFiles(newExpanded);
+  };
+
+  const handleEdit = () => {
+    if (selectedRecord) {
+      setEditedText(selectedRecord.extracted_text);
+      setIsEditing(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedText('');
+  };
+
+  const handleSave = async () => {
+    if (!selectedRecord) return;
+    
+    setIsSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append('extracted_text', editedText);
+
+      const response = await fetch(`${BACKEND_URL}/history/${selectedRecord.id}`, {
+        method: 'PUT',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('텍스트 수정에 실패했습니다.');
+      }
+
+      const updatedRecord = await response.json();
+      
+      // 선택된 레코드 업데이트
+      setSelectedRecord(updatedRecord);
+      
+      // 파일 목록도 업데이트
+      setFiles(prevFiles => 
+        prevFiles.map(fileGroup => ({
+          ...fileGroup,
+          records: fileGroup.records.map(record =>
+            record.id === updatedRecord.id ? updatedRecord : record
+          )
+        }))
+      );
+      
+      setIsEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '텍스트 수정 중 오류가 발생했습니다.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedRecord) return;
+    
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/history/${selectedRecord.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('레코드 삭제에 실패했습니다.');
+      }
+
+      // 파일 목록에서 삭제
+      setFiles(prevFiles => 
+        prevFiles.map(fileGroup => ({
+          ...fileGroup,
+          records: fileGroup.records.filter(record => record.id !== selectedRecord.id),
+          total_records: fileGroup.records.filter(record => record.id !== selectedRecord.id).length
+        })).filter(fileGroup => fileGroup.total_records > 0)
+      );
+      
+      setSelectedRecord(null);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '레코드 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   useEffect(() => {
+    // 초기 로드 시에만 데이터 가져오기
     fetchHistory();
   }, []);
+
+  // 모든 레코드를 시간순으로 정렬된 리스트로 변환
+  const getAllRecordsSorted = useCallback((): OCRRecord[] => {
+    const allRecords: OCRRecord[] = [];
+    files.forEach(fileGroup => {
+      allRecords.push(...fileGroup.records);
+    });
+    // 시간순으로 정렬 (최신순)
+    return allRecords.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }, [files]);
+
+  // 이전 레코드로 이동
+  const navigateToPrevious = useCallback(() => {
+    if (!selectedRecord) return;
+    const allRecords = getAllRecordsSorted();
+    const currentIndex = allRecords.findIndex(r => r.id === selectedRecord.id);
+    if (currentIndex > 0) {
+      setSelectedRecord(allRecords[currentIndex - 1]);
+      setIsEditing(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [selectedRecord, getAllRecordsSorted]);
+
+  // 다음 레코드로 이동
+  const navigateToNext = useCallback(() => {
+    if (!selectedRecord) return;
+    const allRecords = getAllRecordsSorted();
+    const currentIndex = allRecords.findIndex(r => r.id === selectedRecord.id);
+    if (currentIndex < allRecords.length - 1) {
+      setSelectedRecord(allRecords[currentIndex + 1]);
+      setIsEditing(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [selectedRecord, getAllRecordsSorted]);
+
+  // 키보드 단축키 지원
+  useEffect(() => {
+    if (!selectedRecord) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 편집 중이거나 삭제 확인 중이면 키보드 단축키 비활성화
+      if (isEditing || showDeleteConfirm) return;
+      
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateToPrevious();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateToNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedRecord, isEditing, showDeleteConfirm, navigateToPrevious, navigateToNext]);
+
+  // 현재 레코드의 인덱스와 전체 개수 계산
+  const recordNavigation = useMemo(() => {
+    if (!selectedRecord) return { currentIndex: -1, total: 0 };
+    const allRecords = getAllRecordsSorted();
+    const currentIndex = allRecords.findIndex(r => r.id === selectedRecord.id);
+    return { currentIndex, total: allRecords.length };
+  }, [selectedRecord, getAllRecordsSorted]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -73,50 +264,298 @@ export default function MonitorPage() {
           <div className="p-4 bg-red-50 border border-red-200 rounded-md">
             <p className="text-sm text-red-800">{error}</p>
           </div>
-        ) : records.length === 0 ? (
+        ) : files.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500">아직 OCR 기록이 없습니다.</p>
           </div>
-        ) : (
-          <div className="space-y-6">
-            {records.map((record) => (
-              <div
-                key={record.id}
-                className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
-              >
-                <div className="flex flex-col md:flex-row">
-                  {/* 왼쪽: 크롭된 이미지 */}
-                  <div className="md:w-1/3 bg-gray-50 p-4 flex items-center justify-center">
-                    {record.cropped_image ? (
-                      <img
-                        src={`data:image/png;base64,${record.cropped_image}`}
-                        alt={`Cropped area ${record.id}`}
-                        className="max-w-full max-h-64 object-contain rounded border border-gray-300"
-                      />
-                    ) : (
-                      <div className="text-gray-400 text-sm">이미지 없음</div>
-                    )}
+        ) : selectedRecord ? (
+          // 상세 보기 모드
+          <div className="space-y-4">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    setSelectedRecord(null);
+                    setIsEditing(false);
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                  파일 목록으로 돌아가기
+                </button>
+                {!isEditing && (
+                  <div className="flex items-center gap-2 border-l border-gray-300 pl-4">
+                    <button
+                      onClick={navigateToPrevious}
+                      disabled={recordNavigation.currentIndex === 0}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="이전 레코드 (←)"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm text-gray-500 px-2">
+                      {recordNavigation.currentIndex + 1} / {recordNavigation.total}
+                    </span>
+                    <button
+                      onClick={navigateToNext}
+                      disabled={recordNavigation.currentIndex === recordNavigation.total - 1}
+                      className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="다음 레코드 (→)"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
-                  
-                  {/* 오른쪽: 추출된 텍스트 */}
-                  <div className="md:w-2/3 p-6">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <span className="text-xs text-gray-500">ID: {record.id}</span>
-                        <span className="text-xs text-gray-500 ml-4">
-                          {formatDate(record.timestamp)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="bg-gray-50 rounded-md p-4 min-h-[200px]">
-                      <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
-                        {record.extracted_text || '(빈 텍스트)'}
-                      </pre>
-                    </div>
-                  </div>
+                )}
+              </div>
+              {!isEditing && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleEdit}
+                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    수정
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="inline-flex items-center px-3 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    삭제
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {showDeleteConfirm && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-red-800 mb-4">
+                  정말로 이 OCR 기록을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDelete}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {isSaving ? '삭제 중...' : '삭제'}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
+                  >
+                    취소
+                  </button>
                 </div>
               </div>
-            ))}
+            )}
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="flex flex-col lg:flex-row">
+                {/* 왼쪽: 크롭된 이미지 */}
+                <div className="lg:w-1/2 bg-gray-50 p-6 flex items-center justify-center min-h-[400px]">
+                  {selectedRecord.cropped_image ? (
+                    <img
+                      src={`data:image/png;base64,${selectedRecord.cropped_image}`}
+                      alt={`Cropped area ${selectedRecord.id}`}
+                      className="max-w-full max-h-[600px] object-contain rounded border border-gray-300 shadow-sm"
+                    />
+                  ) : (
+                    <div className="text-gray-400 text-sm">이미지 없음</div>
+                  )}
+                </div>
+                
+                {/* 오른쪽: 추출된 텍스트 */}
+                <div className="lg:w-1/2 p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <span className="text-xs text-gray-500">ID: {selectedRecord.id}</span>
+                      <span className="text-xs text-gray-500 ml-4">
+                        {formatDate(selectedRecord.timestamp)}
+                      </span>
+                      {selectedRecord.page_number && (
+                        <span className="text-xs text-gray-500 ml-4">
+                          페이지: {selectedRecord.page_number}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {isEditing ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* 원본 텍스트 */}
+                        <div>
+                          <div className="text-xs text-gray-500 mb-2 font-semibold">원본 텍스트</div>
+                          <div className="border border-gray-300 rounded-md bg-gray-50 p-4 h-[400px] overflow-y-auto">
+                            <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
+                              {selectedRecord?.extracted_text || '(빈 텍스트)'}
+                            </pre>
+                          </div>
+                        </div>
+                        {/* 수정 중인 텍스트 */}
+                        <div>
+                          <div className="text-xs text-gray-500 mb-2 font-semibold">수정 중인 텍스트</div>
+                          <div className="border border-gray-300 rounded-md bg-white overflow-hidden">
+                            <div className="h-[400px] overflow-y-auto p-4 font-mono text-sm">
+                              {selectedRecord ? (
+                                editedText.split('\n').map((line, idx) => {
+                                  const originalLine = selectedRecord.extracted_text.split('\n')[idx] || '';
+                                  const isModified = line !== originalLine;
+                                  return (
+                                    <div 
+                                      key={idx} 
+                                      className={isModified ? 'bg-red-50 border-l-4 border-red-500 pl-2 py-1 mb-1' : 'pl-2 py-1 mb-1'}
+                                    >
+                                      <span style={{ color: isModified ? '#dc2626' : '#111827' }}>
+                                        {line || ' '}
+                                      </span>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div style={{ color: '#111827' }}>
+                                  {editedText}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {/* 편집 가능한 textarea */}
+                      <div>
+                        <div className="text-xs text-gray-500 mb-2 font-semibold">텍스트 편집</div>
+                        <textarea
+                          value={editedText}
+                          onChange={(e) => setEditedText(e.target.value)}
+                          className="w-full h-[200px] p-4 border border-gray-300 rounded-md font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                          placeholder="텍스트를 입력하세요..."
+                          style={{ 
+                            color: '#111827',
+                            caretColor: '#111827'
+                          }}
+                        />
+                      </div>
+                      {/* 수정 상태 표시 */}
+                      {selectedRecord && editedText !== selectedRecord.extracted_text && (
+                        <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                          <span className="font-semibold">수정됨:</span> 위 비교 뷰에서 빨간색으로 표시된 줄이 원본과 다른 내용입니다.
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSave}
+                          disabled={isSaving}
+                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {isSaving ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              저장 중...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4 mr-2" />
+                              저장
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          disabled={isSaving}
+                          className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          <X className="w-4 h-4 mr-2" />
+                          취소
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-md p-4 min-h-[400px] max-h-[600px] overflow-y-auto">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
+                        {selectedRecord.extracted_text || '(빈 텍스트)'}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          // 파일 목록 모드
+          <div className="space-y-4">
+            {files.map((fileGroup) => {
+              const groupKey = getGroupKey(fileGroup);
+              const isExpanded = expandedFiles.has(groupKey);
+              // 같은 파일명이 여러 개인지 확인 (같은 파일명의 다른 그룹이 있는지)
+              const sameFilenameCount = files.filter(f => f.filename === fileGroup.filename).length;
+              const displayName = sameFilenameCount > 1 && fileGroup.first_timestamp
+                ? `${fileGroup.filename} (${formatDate(fileGroup.first_timestamp)})`
+                : fileGroup.filename;
+              
+              return (
+              <div
+                key={groupKey}
+                className="border border-gray-200 rounded-lg overflow-hidden"
+              >
+                {/* 파일 헤더 */}
+                <button
+                  onClick={() => toggleFile(fileGroup)}
+                  className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    {isExpanded ? (
+                      <ChevronDown className="w-5 h-5 text-gray-600" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-gray-600" />
+                    )}
+                    <FileText className="w-5 h-5 text-gray-600" />
+                    <div className="text-left">
+                      <div className="font-semibold text-gray-900">{displayName}</div>
+                      <div className="text-sm text-gray-500">
+                        {fileGroup.total_records}개 기록 · {formatDate(fileGroup.latest_timestamp)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+                
+                {/* 파일 내 기록 목록 */}
+                {isExpanded && (
+                  <div className="p-4 bg-white">
+                    <div className="space-y-3">
+                      {fileGroup.records.map((record) => (
+                        <div
+                          key={record.id}
+                          onClick={() => setSelectedRecord(record)}
+                          className="p-3 border border-gray-200 rounded-md hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center gap-2">
+                              {record.page_number && (
+                                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                  페이지 {record.page_number}
+                                </span>
+                              )}
+                              <span className="text-xs text-gray-500">
+                                {formatDate(record.timestamp)}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-400">ID: {record.id}</span>
+                          </div>
+                          <div className="text-sm text-gray-700 line-clamp-2">
+                            {record.extracted_text.substring(0, 100)}
+                            {record.extracted_text.length > 100 ? '...' : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              );
+            })}
           </div>
         )}
       </div>

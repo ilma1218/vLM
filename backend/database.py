@@ -20,6 +20,8 @@ class OCRRecord(Base):
     extracted_text = Column(String, nullable=False)
     cropped_image = Column(String, nullable=True)  # base64 encoded image
     timestamp = Column(DateTime, default=datetime.utcnow)
+    filename = Column(String, nullable=True)  # 원본 파일명
+    page_number = Column(Integer, nullable=True)  # PDF 페이지 번호 (이미지인 경우 None)
 
 
 def init_db():

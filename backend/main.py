@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
@@ -53,6 +53,138 @@ def clean_ocr_response(text: str) -> str:
     text = re.sub(r'…\s*$', '', text)
     text = re.sub(r'\.\.\s*$', '', text)
     text = re.sub(r'\s*by\s+c\.\.\.\s*$', '', text, flags=re.IGNORECASE)  # "by c..." 형식 제거
+    
+    # 같은 라인 내에서 문구 반복 제거
+    # 예: "광고 프로젝트의 진행 및 광고 프로젝트의 진행 및 ..." -> "광고 프로젝트의 진행 및"
+    def remove_repeated_phrases(text_line: str) -> str:
+        """
+        같은 라인 내에서 반복되는 문구를 제거합니다.
+        """
+        if not text_line or len(text_line.strip()) < 10:
+            return text_line
+        
+        # 방법 1: 정규표현식으로 같은 문구가 3번 이상 반복되는 패턴 찾기
+        # 최소 5자 이상의 문구가 공백으로 구분되어 반복되는 경우
+        # 예: "광고 프로젝트의 진행 및 광고 프로젝트의 진행 및 ..."
+        pattern = r'(.{5,}?)(?:\s+\1){2,}'
+        
+        def replace_repeat(match):
+            # 반복된 문구를 한 번만 반환
+            return match.group(1)
+        
+        result = re.sub(pattern, replace_repeat, text_line)
+        
+        # 방법 2: 단어 그룹 반복 확인 (더 정확한 감지)
+        # 2-8개 단어로 구성된 그룹이 3번 이상 반복되는 경우
+        words = result.split()
+        if len(words) > 15:  # 충분히 긴 경우만 검사
+            # 역순으로 검사하여 가장 긴 반복 패턴부터 찾기
+            max_group_size = min(8, len(words) // 3)
+            
+            for group_size in range(max_group_size, 1, -1):  # 큰 그룹부터 작은 그룹까지
+                i = 0
+                while i <= len(words) - group_size * 3:
+                    group = words[i:i + group_size]
+                    
+                    # 이 그룹이 연속으로 몇 번 반복되는지 확인
+                    repeat_count = 1
+                    pos = i + group_size
+                    
+                    while pos + group_size <= len(words):
+                        next_group = words[pos:pos + group_size]
+                        if next_group == group:
+                            repeat_count += 1
+                            pos += group_size
+                        else:
+                            break
+                    
+                    # 3번 이상 반복되면 첫 번째만 유지하고 나머지 제거
+                    if repeat_count >= 3:
+                        # 반복된 부분 제거
+                        new_words = words[:i + group_size]
+                        new_words.extend(words[i + group_size * repeat_count:])
+                        words = new_words
+                        # 다시 처음부터 검사
+                        i = 0
+                        continue
+                    
+                    i += 1
+                
+                # 반복 패턴을 찾았으면 더 작은 그룹은 검사하지 않음
+                if len(words) < len(result.split()):
+                    break
+            
+            result = ' '.join(words)
+        
+        return result
+    
+    # 비정상적으로 긴 숫자 시퀀스 제거 (같은 라인 내에서 숫자가 10개 이상 반복되는 경우)
+    # 예: "10, 11, 12, 13, ... 365," -> 제거
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        # 문구 반복 제거 먼저 수행
+        line = remove_repeated_phrases(line)
+        # 숫자 시퀀스 패턴 찾기 (예: "10, 11, 12, 13" 또는 "10,11,12,13")
+        # 숫자가 10개 이상 연속으로 나오는 경우를 감지
+        # 더 강력한 패턴: 숫자, 콤마, 공백이 반복되는 패턴
+        number_sequence_pattern = r'(\d+\s*[,，]\s*){10,}'
+        
+        # 숫자 시퀀스가 있는지 확인
+        match = re.search(number_sequence_pattern, line)
+        if match:
+            start_pos = match.start()
+            
+            # 숫자 시퀀스 시작 전의 텍스트 확인
+            before_text = line[:start_pos]
+            
+            # 숫자 시퀀스가 시작된 이후의 모든 숫자 시퀀스 길이 확인
+            # 숫자 시퀀스 부분 추출
+            sequence_part = line[start_pos:]
+            # 숫자 개수 세기
+            numbers_in_sequence = re.findall(r'\d+', sequence_part)
+            
+            # 숫자가 10개 이상이면 제거
+            if len(numbers_in_sequence) >= 10:
+                # 괄호가 열려있는지 확인
+                open_paren_count = before_text.count('(') - before_text.count(')')
+                
+                if open_paren_count > 0:
+                    # 괄호 안의 숫자 시퀀스인 경우
+                    # 괄호 시작 부분을 찾아서 숫자 시퀀스 전까지 유지
+                    last_open_paren = before_text.rfind('(')
+                    if last_open_paren >= 0:
+                        # 괄호 시작부터 숫자 시퀀스 전까지의 텍스트 유지
+                        # 예: "소재지 대전 유성구 (카인 : 10, 11, ..." -> "소재지 대전 유성구 (카인 :"
+                        line = line[:start_pos].rstrip()
+                        # 끝에 불필요한 구두점 제거 (콜론은 유지)
+                        line = re.sub(r'[,\s]+$', '', line)
+                        # 닫는 괄호가 없으면 추가하지 않음 (원본 텍스트 유지)
+                    else:
+                        # 괄호가 없거나 찾을 수 없는 경우, 숫자 시퀀스 시작 전까지 유지
+                        line = line[:start_pos].rstrip()
+                        line = re.sub(r'[,\s:：]+$', '', line)
+                else:
+                    # 괄호 밖의 숫자 시퀀스인 경우
+                    # 숫자 시퀀스 시작 전까지의 텍스트만 유지
+                    line = line[:start_pos].rstrip()
+                    # 끝에 불필요한 구두점 제거
+                    line = re.sub(r'[,\s:：]+$', '', line)
+        
+        # 추가 검사: 라인 전체가 숫자 시퀀스로만 구성되어 있는 경우 제거
+        if line.strip():
+            # 라인이 숫자와 콤마, 공백만으로 구성되어 있고 길이가 매우 긴 경우
+            if re.match(r'^[\s\d,，]+$', line) and len(line) > 50:
+                # 숫자가 10개 이상인지 확인
+                numbers = re.findall(r'\d+', line)
+                if len(numbers) >= 10:
+                    # 이 라인은 완전히 제거
+                    continue
+        
+        cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
     
     # 중복 라인 제거 (연속된 동일한 라인 제거)
     lines = text.split('\n')
@@ -137,13 +269,25 @@ def clean_ocr_response(text: str) -> str:
 
 
 @app.post("/ocr")
-async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def ocr_image(
+    file: UploadFile = File(...),
+    filename: str = Form(None),
+    page_number: int = Form(None),
+    custom_prompt: str = Form(None),
+    db: Session = Depends(get_db)
+):
     """
     크롭된 이미지 파일을 받아서 OCR을 수행합니다.
     """
     try:
         # 파일 읽기
         file_bytes = await file.read()
+        
+        # 파일명과 페이지 번호 추출 (FormData에서)
+        # filename이 없으면 업로드된 파일명 사용
+        if not filename:
+            filename = file.filename
+        # 페이지 번호가 없으면 None 유지
         
         # 이미지 검증 및 디버깅
         try:
@@ -164,6 +308,14 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
         max_attempts = 3
         raw_text = ""
         
+        # 기본 프롬프트 설정
+        default_system_prompt = "You are a precise OCR engine. Extract ONLY the text that is ACTUALLY VISIBLE in the image. Do NOT generate patterns, sequences, or repeated numbers. Do NOT extrapolate or guess what might be there. Extract EXACTLY what you see, character by character, from left to right, top to bottom. Each character, word, and line should appear only once. Do NOT repeat any text. Do NOT create number sequences. Do NOT duplicate content. Read the image carefully and output only the actual visible text, including Korean (한글), English, numbers, and symbols. Stop when you reach the end of visible text."
+        
+        default_user_prompt = "Extract ONLY the text that is ACTUALLY VISIBLE in this cropped image. Read from left to right, top to bottom, line by line. Extract each line exactly once. Do NOT generate patterns. Do NOT create number sequences like '10, 11, 12...'. Do NOT repeat any text. Do NOT extrapolate beyond what is visible. Output only the actual text you can see in the image:"
+        
+        # 사용자 지정 프롬프트가 있으면 사용, 없으면 기본값 사용
+        user_prompt = custom_prompt.strip() if custom_prompt and custom_prompt.strip() else default_user_prompt
+        
         for attempt in range(max_attempts):
             full_response = ""
             stream = ollama.chat(
@@ -171,20 +323,23 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a precise OCR engine. Extract and output EVERY SINGLE CHARACTER of text visible in this cropped image region, including Korean (한글), English, numbers, symbols, and all other characters. Read from left to right, top to bottom, line by line. Each line should be read only once. Do NOT repeat the same line. Do NOT duplicate text. Do NOT skip any text. Extract both Korean and English text equally. Continue reading until you reach the very end. Do NOT stop early. Do NOT truncate. Do NOT abbreviate. Do NOT add explanations. Output the complete text in full, with each line appearing only once."
+                        "content": default_system_prompt
                     },
                     {
                         "role": "user",
-                        "content": f"Extract ALL text from this cropped image region, including Korean characters, English letters, numbers, and all symbols. Read every line from left to right, top to bottom, exactly once. Extract both Korean and English text. Do not skip any language. Do not repeat any line. Continue until you reach the end of the image. Output the complete text with no duplicates:",
+                        "content": user_prompt,
                         "images": [image_base64]
                     }
                 ],
                 stream=True,
                 options={
                     "num_predict": 16384,  # 토큰 수 대폭 증가 (최대한)
-                    "temperature": 0.0,    # 완전히 결정론적으로
+                    "temperature": 0.0,    # 완전히 결정론적으로 (0.0 = 완전히 결정론적)
+                    "top_p": 0.9,          # 핵 샘플링 (더 정확한 추출)
+                    "top_k": 40,           # 상위 k개 토큰만 고려
                     "stop": [],            # 중간에 멈추지 않도록
                     "num_ctx": 32768,      # 컨텍스트 윈도우 최대 증가
+                    "repeat_penalty": 1.2,  # 반복 패널티 (반복 방지)
                 }
             )
             
@@ -221,7 +376,9 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
         ocr_record = OCRRecord(
             extracted_text=extracted_text,
             cropped_image=cropped_image_base64,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
+            filename=filename,
+            page_number=page_number
         )
         db.add(ocr_record)
         db.commit()
@@ -231,7 +388,9 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
             "id": ocr_record.id,
             "extracted_text": extracted_text,
             "cropped_image": cropped_image_base64,
-            "timestamp": ocr_record.timestamp.isoformat()
+            "timestamp": ocr_record.timestamp.isoformat(),
+            "filename": ocr_record.filename,
+            "page_number": ocr_record.page_number
         }
     
     except Exception as e:
@@ -239,23 +398,147 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
 
 
 @app.get("/history")
-async def get_history(db: Session = Depends(get_db)):
+async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
     """
     OCR 히스토리를 반환합니다.
+    grouped=True이면 파일별로 그룹화하여 반환합니다.
     """
     try:
         records = db.query(OCRRecord).order_by(OCRRecord.timestamp.desc()).all()
-        return [
-            {
-                "id": record.id,
-                "extracted_text": record.extracted_text,
-                "cropped_image": record.cropped_image,
-                "timestamp": record.timestamp.isoformat()
-            }
-            for record in records
-        ]
+        
+        if grouped:
+            # 파일명별로 먼저 분류
+            from collections import defaultdict
+            from datetime import timedelta
+            
+            # 파일명별로 레코드 그룹화
+            filename_groups = defaultdict(list)
+            for record in records:
+                filename = record.filename or "Unknown"
+                filename_groups[filename].append(record)
+            
+            # 각 파일명 그룹 내에서 시간 기반으로 세부 그룹 생성
+            files_dict = {}
+            GROUP_TIME_THRESHOLD = timedelta(minutes=10)  # 10분 이상 차이나면 별도 그룹
+            
+            for filename, file_records in filename_groups.items():
+                # 같은 파일명의 레코드들을 시간순으로 정렬 (최신순)
+                file_records.sort(key=lambda x: x.timestamp, reverse=True)
+                
+                # 시간 기반으로 그룹 분리
+                current_group = None
+                current_group_key = None
+                last_timestamp = None
+                
+                for record in file_records:
+                    # 첫 번째 레코드이거나, 이전 레코드와의 시간 차이가 임계값 이상이면 새 그룹 시작
+                    if (last_timestamp is None or 
+                        (last_timestamp - record.timestamp) > GROUP_TIME_THRESHOLD):
+                        # 새 그룹 생성
+                        # 그룹 키는 파일명_첫타임스탬프 형식
+                        group_timestamp_str = record.timestamp.strftime("%Y%m%d_%H%M%S")
+                        current_group_key = f"{filename}_{group_timestamp_str}"
+                        
+                        current_group = {
+                            "filename": filename,
+                            "records": [],
+                            "total_records": 0,
+                            "latest_timestamp": record.timestamp,
+                            "first_timestamp": record.timestamp
+                        }
+                        files_dict[current_group_key] = current_group
+                    
+                    # 현재 그룹에 레코드 추가
+                    current_group["records"].append({
+                        "id": record.id,
+                        "extracted_text": record.extracted_text,
+                        "cropped_image": record.cropped_image,
+                        "timestamp": record.timestamp.isoformat(),
+                        "page_number": record.page_number
+                    })
+                    current_group["total_records"] += 1
+                    
+                    # 최신 타임스탬프 업데이트
+                    if record.timestamp > current_group["latest_timestamp"]:
+                        current_group["latest_timestamp"] = record.timestamp
+                    
+                    last_timestamp = record.timestamp
+            
+            # 파일 목록을 최신 순으로 정렬하고 타임스탬프를 문자열로 변환
+            files_list = []
+            for file_data in sorted(
+                files_dict.values(),
+                key=lambda x: x["latest_timestamp"],
+                reverse=True
+            ):
+                file_data["latest_timestamp"] = file_data["latest_timestamp"].isoformat()
+                file_data["first_timestamp"] = file_data["first_timestamp"].isoformat()
+                files_list.append(file_data)
+            
+            return files_list
+        else:
+            # 기존 방식: 모든 기록 반환
+            return [
+                {
+                    "id": record.id,
+                    "extracted_text": record.extracted_text,
+                    "cropped_image": record.cropped_image,
+                    "timestamp": record.timestamp.isoformat(),
+                    "filename": record.filename,
+                    "page_number": record.page_number
+                }
+                for record in records
+            ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+
+@app.put("/history/{record_id}")
+async def update_record(record_id: int, extracted_text: str = Form(...), db: Session = Depends(get_db)):
+    """
+    OCR 기록의 텍스트를 수정합니다.
+    """
+    try:
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Record not found")
+        
+        record.extracted_text = extracted_text
+        db.commit()
+        db.refresh(record)
+        
+        return {
+            "id": record.id,
+            "extracted_text": record.extracted_text,
+            "cropped_image": record.cropped_image,
+            "timestamp": record.timestamp.isoformat(),
+            "filename": record.filename,
+            "page_number": record.page_number
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update record: {str(e)}")
+
+
+@app.delete("/history/{record_id}")
+async def delete_record(record_id: int, db: Session = Depends(get_db)):
+    """
+    OCR 기록을 삭제합니다.
+    """
+    try:
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Record not found")
+        
+        db.delete(record)
+        db.commit()
+        
+        return {"message": "Record deleted successfully", "id": record_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete record: {str(e)}")
 
 
 @app.get("/")
