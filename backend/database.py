@@ -18,6 +18,7 @@ class OCRRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     extracted_text = Column(String, nullable=False)
+    cropped_image = Column(String, nullable=True)  # base64 encoded image
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 

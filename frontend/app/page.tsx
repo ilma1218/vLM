@@ -5,7 +5,7 @@ import ReactCrop, { Crop, PixelCrop, makeAspectCrop, centerCrop } from 'react-im
 import 'react-image-crop/dist/ReactCrop.css';
 import { renderPdfFirstPageToCanvas, renderPdfAllPagesToCanvases, getPdfPageCount } from '@/utils/pdfUtils';
 import { cropImageToBlob, CropArea } from '@/utils/cropUtils';
-import { Upload, X, Loader2 } from 'lucide-react';
+import { Upload, X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -21,6 +21,12 @@ export default function Home() {
   const [isPdf, setIsPdf] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [processingProgress, setProcessingProgress] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [pdfCanvases, setPdfCanvases] = useState<HTMLCanvasElement[]>([]);
+  const [cropPercent, setCropPercent] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
   
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,28 +35,92 @@ export default function Home() {
   // 이미지 로드 핸들러
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    const crop = makeAspectCrop(
-      {
-        unit: '%',
-        width: 50,
-      },
-      16 / 9,
-      width,
-      height
-    );
-    setCrop(centerCrop(crop, width, height));
+    
+    // 크롭 영역이 이미 선택되어 있으면 퍼센트 기반으로 복원
+    if (cropPercent) {
+      const newCrop: PixelCrop = {
+        x: (cropPercent.x / 100) * width,
+        y: (cropPercent.y / 100) * height,
+        width: (cropPercent.width / 100) * width,
+        height: (cropPercent.height / 100) * height,
+        unit: 'px',
+      };
+      setCompletedCrop(newCrop);
+      setCrop({
+        unit: 'px',
+        x: newCrop.x,
+        y: newCrop.y,
+        width: newCrop.width,
+        height: newCrop.height,
+      });
+    } else {
+      // 크롭 영역이 없으면 기본 크롭 생성
+      const crop = makeAspectCrop(
+        {
+          unit: '%',
+          width: 50,
+        },
+        16 / 9,
+        width,
+        height
+      );
+      setCrop(centerCrop(crop, width, height));
+    }
+  }, [cropPercent]);
+  
+  // 크롭 완료 핸들러
+  const onCropComplete = useCallback((crop: PixelCrop) => {
+    setCompletedCrop(crop);
+    
+    // 크롭 영역을 퍼센트로 저장 (페이지 이동 시 동일한 위치에 표시하기 위해)
+    if (imgRef.current) {
+      const imgWidth = imgRef.current.width;
+      const imgHeight = imgRef.current.height;
+      setCropPercent({
+        x: (crop.x / imgWidth) * 100,
+        y: (crop.y / imgHeight) * 100,
+        width: (crop.width / imgWidth) * 100,
+        height: (crop.height / imgHeight) * 100,
+      });
+    }
   }, []);
+  
+  // PDF 페이지 이동
+  const handlePageChange = useCallback((newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    
+    setCurrentPage(newPage);
+    
+    if (pdfCanvases[newPage - 1]) {
+      const dataUrl = pdfCanvases[newPage - 1].toDataURL('image/png');
+      setImageSrc(dataUrl);
+    }
+  }, [totalPages, pdfCanvases]);
 
   // 파일 선택 핸들러
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    setFile(selectedFile);
-    setOcrResult(null);
-    setError(null);
+    // 이전 파일 완전히 정리 (먼저 정리)
+    setImageSrc(null);
     setCrop(undefined);
     setCompletedCrop(undefined);
+    setCropPercent(null);
+    setOcrResult(null);
+    setError(null);
+    setCurrentPage(1);
+    setTotalPages(1);
+    setPdfCanvases([]);
+    
+    if (croppedPreview) {
+      URL.revokeObjectURL(croppedPreview);
+      setCroppedPreview(null);
+    }
+
+    setIsUploading(true);
+    setUploadProgress(0);
+    setFile(selectedFile);
 
     const fileType = selectedFile.type;
     const fileName = selectedFile.name.toLowerCase();
@@ -60,25 +130,56 @@ export default function Home() {
         // 이미지 파일인 경우
         setIsPdf(false);
         setPdfFile(null);
+        setUploadProgress(30);
+        
         const reader = new FileReader();
         reader.onload = (e) => {
+          setUploadProgress(100);
           setImageSrc(e.target?.result as string);
+          setIsUploading(false);
+        };
+        reader.onerror = () => {
+          setError('파일 읽기 중 오류가 발생했습니다.');
+          setIsUploading(false);
+          setFile(null);
         };
         reader.readAsDataURL(selectedFile);
       } else if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
         // PDF 파일인 경우
         setIsPdf(true);
         setPdfFile(selectedFile);
-        const canvas = await renderPdfFirstPageToCanvas(selectedFile);
-        const dataUrl = canvas.toDataURL('image/png');
-        setImageSrc(dataUrl);
+        setCurrentPage(1);
+        setUploadProgress(20);
+        
+        // 모든 페이지를 미리 렌더링
+        setUploadProgress(40);
+        const totalPages = await getPdfPageCount(selectedFile);
+        setTotalPages(totalPages);
+        
+        setUploadProgress(50);
+        const canvases = await renderPdfAllPagesToCanvases(selectedFile);
+        setPdfCanvases(canvases);
+        setUploadProgress(80);
+        
+        // 첫 페이지 표시
+        const dataUrl = canvases[0].toDataURL('image/png');
+        // 이전 이미지 완전히 제거 후 새 이미지 설정
+        setImageSrc(null);
+        setTimeout(() => {
+          setImageSrc(dataUrl);
+          setUploadProgress(100);
+          setIsUploading(false);
+        }, 50);
       } else {
         setError('지원하지 않는 파일 형식입니다. 이미지(jpg, png) 또는 PDF 파일을 업로드해주세요.');
         setFile(null);
+        setIsUploading(false);
       }
     } catch (err) {
       setError(`파일 처리 중 오류가 발생했습니다: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setFile(null);
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -198,6 +299,7 @@ export default function Home() {
 
   // 파일 초기화
   const handleReset = () => {
+    // 이전 파일 완전히 정리
     setFile(null);
     setImageSrc(null);
     setCrop(undefined);
@@ -207,6 +309,12 @@ export default function Home() {
     setIsPdf(false);
     setPdfFile(null);
     setProcessingProgress('');
+    setCurrentPage(1);
+    setTotalPages(1);
+    setPdfCanvases([]);
+    setCropPercent(null);
+    setUploadProgress(0);
+    setIsUploading(false);
     if (croppedPreview) {
       URL.revokeObjectURL(croppedPreview);
       setCroppedPreview(null);
@@ -250,42 +358,88 @@ export default function Home() {
                 <button
                   onClick={handleReset}
                   className="text-red-600 hover:text-red-800"
+                  disabled={isUploading}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             )}
           </div>
+          {/* 업로드 진행 상황 표시 */}
+          {isUploading && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-700">파일 처리 중...</span>
+                <span className="text-sm text-gray-500">{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 이미지 크롭 영역 */}
         {imageSrc && (
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              영역 선택 (드래그하여 크롭할 영역을 선택하세요)
-              {isPdf && (
-                <span className="ml-2 text-sm font-normal text-gray-600">
-                  (PDF: 모든 페이지에서 동일한 영역이 추출됩니다)
-                </span>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">
+                영역 선택 (드래그하여 크롭할 영역을 선택하세요)
+                {isPdf && (
+                  <span className="ml-2 text-sm font-normal text-gray-600">
+                    (PDF: 모든 페이지에서 동일한 영역이 추출됩니다)
+                  </span>
+                )}
+              </h2>
+              {isPdf && totalPages > 1 && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-sm text-gray-700">
+                    페이지 {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               )}
-            </h2>
+            </div>
             <div className="flex justify-center bg-gray-100 p-4 rounded-lg">
-              <ReactCrop
-                crop={crop}
-                onChange={(_, percentCrop) => setCrop(percentCrop)}
-                onComplete={(c) => setCompletedCrop(c)}
-                aspect={undefined}
-                minWidth={50}
-                minHeight={50}
-              >
-                <img
-                  ref={imgRef}
-                  src={imageSrc}
-                  alt="Uploaded"
-                  onLoad={onImageLoad}
-                  style={{ maxWidth: '100%', maxHeight: '600px', display: 'block' }}
-                />
-              </ReactCrop>
+              {imageSrc ? (
+                <ReactCrop
+                  crop={crop}
+                  onChange={(_, percentCrop) => setCrop(percentCrop)}
+                  onComplete={onCropComplete}
+                  aspect={undefined}
+                  minWidth={50}
+                  minHeight={50}
+                >
+                  <img
+                    key={file?.name || imageSrc}
+                    ref={imgRef}
+                    src={imageSrc}
+                    alt="Uploaded"
+                    onLoad={onImageLoad}
+                    style={{ maxWidth: '100%', maxHeight: '600px', display: 'block' }}
+                  />
+                </ReactCrop>
+              ) : (
+                <div className="flex items-center justify-center h-64 text-gray-400">
+                  {isUploading ? '파일 처리 중...' : '이미지를 선택해주세요'}
+                </div>
+              )}
             </div>
             <div className="mt-4">
               <button

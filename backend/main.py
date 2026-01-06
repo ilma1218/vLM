@@ -74,6 +74,62 @@ def clean_ocr_response(text: str) -> str:
     
     text = '\n'.join(cleaned_lines)
     
+    # 여러 줄 패턴의 반복 제거
+    # 예: "A\nB\nA\nB\nA\nB" -> "A\nB"
+    lines = text.split('\n')
+    if len(lines) > 4:  # 최소 4줄 이상일 때만 패턴 검사
+        # 패턴 길이를 2부터 전체의 절반까지 시도
+        max_pattern_length = min(len(lines) // 2, 10)  # 최대 10줄 패턴까지 검사
+        
+        for pattern_len in range(2, max_pattern_length + 1):
+            # 패턴이 반복되는지 확인
+            pattern = lines[:pattern_len]
+            # 빈 줄을 제외한 패턴 텍스트 생성
+            pattern_text = '\n'.join([l.strip() for l in pattern if l.strip()])
+            
+            if not pattern_text:  # 빈 패턴은 건너뛰기
+                continue
+            
+            # 패턴이 3번 이상 반복되는지 확인
+            repeat_count = 1
+            pos = pattern_len
+            
+            while pos + pattern_len <= len(lines):
+                current_pattern = lines[pos:pos + pattern_len]
+                # 빈 줄을 제외한 현재 패턴 텍스트 생성
+                current_pattern_text = '\n'.join([l.strip() for l in current_pattern if l.strip()])
+                
+                if current_pattern_text == pattern_text:
+                    repeat_count += 1
+                    pos += pattern_len
+                else:
+                    break
+            
+            # 패턴이 3번 이상 반복되면 첫 번째 패턴만 유지
+            if repeat_count >= 3:
+                # 반복된 패턴 제거
+                remaining_lines = lines[repeat_count * pattern_len:]
+                text = '\n'.join(pattern + remaining_lines)
+                break  # 첫 번째로 발견된 패턴만 제거
+    
+    # 패턴 제거 후 다시 한 번 연속된 동일한 라인 제거 (남은 중복 제거)
+    lines = text.split('\n')
+    final_lines = []
+    prev_line = None
+    
+    for line in lines:
+        line_stripped = line.strip()
+        if not line_stripped:
+            if final_lines and final_lines[-1].strip():
+                final_lines.append('')
+            continue
+        
+        if line_stripped != prev_line:
+            final_lines.append(line)
+            prev_line = line_stripped
+    
+    text = '\n'.join(final_lines)
+    
     # 앞뒤 공백 제거
     text = text.strip()
     
@@ -158,9 +214,13 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
         
         extracted_text = clean_ocr_response(raw_text)
         
+        # 크롭된 이미지를 base64로 인코딩하여 저장
+        cropped_image_base64 = base64.b64encode(file_bytes).decode('utf-8')
+        
         # 데이터베이스에 저장
         ocr_record = OCRRecord(
             extracted_text=extracted_text,
+            cropped_image=cropped_image_base64,
             timestamp=datetime.utcnow()
         )
         db.add(ocr_record)
@@ -170,6 +230,7 @@ async def ocr_image(file: UploadFile = File(...), db: Session = Depends(get_db))
         return {
             "id": ocr_record.id,
             "extracted_text": extracted_text,
+            "cropped_image": cropped_image_base64,
             "timestamp": ocr_record.timestamp.isoformat()
         }
     
@@ -188,6 +249,7 @@ async def get_history(db: Session = Depends(get_db)):
             {
                 "id": record.id,
                 "extracted_text": record.extracted_text,
+                "cropped_image": record.cropped_image,
                 "timestamp": record.timestamp.isoformat()
             }
             for record in records

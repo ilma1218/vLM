@@ -8,6 +8,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:800
 interface OCRRecord {
   id: number;
   extracted_text: string;
+  cropped_image?: string;  // base64 encoded image
   timestamp: string;
 }
 
@@ -77,39 +78,45 @@ export default function MonitorPage() {
             <p className="text-gray-500">아직 OCR 기록이 없습니다.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    추출된 텍스트
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    시간
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {records.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.id}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700 max-w-md">
-                      <div className="truncate" title={record.extracted_text}>
-                        {record.extracted_text || '(빈 텍스트)'}
+          <div className="space-y-6">
+            {records.map((record) => (
+              <div
+                key={record.id}
+                className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
+              >
+                <div className="flex flex-col md:flex-row">
+                  {/* 왼쪽: 크롭된 이미지 */}
+                  <div className="md:w-1/3 bg-gray-50 p-4 flex items-center justify-center">
+                    {record.cropped_image ? (
+                      <img
+                        src={`data:image/png;base64,${record.cropped_image}`}
+                        alt={`Cropped area ${record.id}`}
+                        className="max-w-full max-h-64 object-contain rounded border border-gray-300"
+                      />
+                    ) : (
+                      <div className="text-gray-400 text-sm">이미지 없음</div>
+                    )}
+                  </div>
+                  
+                  {/* 오른쪽: 추출된 텍스트 */}
+                  <div className="md:w-2/3 p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <span className="text-xs text-gray-500">ID: {record.id}</span>
+                        <span className="text-xs text-gray-500 ml-4">
+                          {formatDate(record.timestamp)}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(record.timestamp)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="bg-gray-50 rounded-md p-4 min-h-[200px]">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
+                        {record.extracted_text || '(빈 텍스트)'}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
