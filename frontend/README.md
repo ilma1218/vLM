@@ -20,9 +20,15 @@ npm run dev
 
 `.env.local` 파일을 생성하여 백엔드 URL을 설정할 수 있습니다:
 
+```bash
+# 서버 IP 주소 사용 (외부 접근 시)
+NEXT_PUBLIC_BACKEND_URL=http://172.17.0.3:8000
+
+# 또는 localhost 사용 (로컬 개발 시)
+# NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-```
+
+`.env.local.example` 파일을 참고하세요.
 
 ## 주요 기능
 

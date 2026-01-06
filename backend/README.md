@@ -22,8 +22,8 @@ uvicorn main:app --reload --port 8000
 ## 사전 요구사항
 
 - Python 3.10+
-- Ollama가 설치되어 있고 `llama3.2-vision` 모델이 다운로드되어 있어야 합니다:
+- Ollama가 설치되어 있고 `qwen2.5vl:7b` 모델이 다운로드되어 있어야 합니다:
   ```bash
-  ollama pull llama3.2-vision
+  ollama pull qwen2.5vl:7b
   ```
 

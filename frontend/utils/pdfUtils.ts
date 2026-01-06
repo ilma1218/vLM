@@ -38,3 +38,47 @@ export async function renderPdfFirstPageToCanvas(
   return canvas;
 }
 
+/**
+ * PDF의 모든 페이지를 Canvas 배열로 렌더링
+ */
+export async function renderPdfAllPagesToCanvases(
+  file: File
+): Promise<HTMLCanvasElement[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const numPages = pdf.numPages;
+  const canvases: HTMLCanvasElement[] = [];
+
+  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Canvas context not available');
+    }
+
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await page.render({
+      canvasContext: context,
+      viewport: viewport,
+    }).promise;
+
+    canvases.push(canvas);
+  }
+
+  return canvases;
+}
+
+/**
+ * PDF의 총 페이지 수 반환
+ */
+export async function getPdfPageCount(file: File): Promise<number> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  return pdf.numPages;
+}
+
