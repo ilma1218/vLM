@@ -60,3 +60,17 @@ Thumbs.db
 data/
 datasets/
 
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backend
+backend/ocr_history.db
+backend/__pycache__/
+
+# Frontend
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+
