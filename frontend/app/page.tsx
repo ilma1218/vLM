@@ -520,13 +520,17 @@ export default function Home() {
     return cropAreasByPage.get(1) || [];
   }, [cropAreasByPage, isPdf]);
 
-  // PDF 페이지 이동
+  // PDF 페이지 이동 (OCR 진행 중에도 가능)
   const handlePageChange = useCallback((newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return;
+    // OCR 진행 중에도 페이지 이동 허용
     
     setCurrentPage(newPage);
-    setCurrentCrop(undefined);
-    setCurrentCompletedCrop(undefined);
+    // OCR 진행 중이 아닐 때만 크롭 상태 초기화
+    if (!isProcessing) {
+      setCurrentCrop(undefined);
+      setCurrentCompletedCrop(undefined);
+    }
     
     if (pdfCanvases[newPage - 1]) {
       const dataUrl = pdfCanvases[newPage - 1].toDataURL('image/png');
@@ -537,54 +541,80 @@ export default function Home() {
         const newPageKey = newPage;
         const newPageAreas = cropAreasByPage.get(newPageKey) || [];
         
-        // 새 페이지에 크롭 영역이 없고, 첫 페이지에 크롭 영역이 있으면 모든 영역 복사
-        if (newPageAreas.length === 0 && newPage > 1) {
-          const firstPageAreas = getFirstPageCropAreas();
-          if (firstPageAreas.length > 0 && imgRef.current) {
-            const imgWidth = imgRef.current.width;
-            const imgHeight = imgRef.current.height;
-            
-            // 첫 페이지의 모든 크롭 영역을 새 페이지에 복사 (페이지 번호만 변경)
-            const copiedAreas = firstPageAreas.map(area => {
-              if (area.cropPercent) {
-                const newCrop: PixelCrop = {
-                  x: (area.cropPercent.x / 100) * imgWidth,
-                  y: (area.cropPercent.y / 100) * imgHeight,
-                  width: (area.cropPercent.width / 100) * imgWidth,
-                  height: (area.cropPercent.height / 100) * imgHeight,
-                  unit: 'px',
-                };
+        // OCR 진행 중이 아닐 때만 크롭 영역 복원
+        if (!isProcessing) {
+          // 새 페이지에 크롭 영역이 없고, 첫 페이지에 크롭 영역이 있으면 모든 영역 복사
+          if (newPageAreas.length === 0 && newPage > 1) {
+            const firstPageAreas = getFirstPageCropAreas();
+            if (firstPageAreas.length > 0 && imgRef.current) {
+              const imgWidth = imgRef.current.width;
+              const imgHeight = imgRef.current.height;
+              
+              // 첫 페이지의 모든 크롭 영역을 새 페이지에 복사 (페이지 번호만 변경)
+              const copiedAreas = firstPageAreas.map(area => {
+                if (area.cropPercent) {
+                  const newCrop: PixelCrop = {
+                    x: (area.cropPercent.x / 100) * imgWidth,
+                    y: (area.cropPercent.y / 100) * imgHeight,
+                    width: (area.cropPercent.width / 100) * imgWidth,
+                    height: (area.cropPercent.height / 100) * imgHeight,
+                    unit: 'px',
+                  };
+                  return {
+                    ...area,
+                    id: `crop-${nextCropId}-page-${newPage}-${area.id.split('-').slice(-1)[0]}`,
+                    crop: {
+                      unit: 'px',
+                      x: newCrop.x,
+                      y: newCrop.y,
+                      width: newCrop.width,
+                      height: newCrop.height,
+                    },
+                    completedCrop: newCrop,
+                    pageNumber: newPage,
+                  };
+                }
                 return {
                   ...area,
                   id: `crop-${nextCropId}-page-${newPage}-${area.id.split('-').slice(-1)[0]}`,
-                  crop: {
-                    unit: 'px',
-                    x: newCrop.x,
-                    y: newCrop.y,
-                    width: newCrop.width,
-                    height: newCrop.height,
-                  },
-                  completedCrop: newCrop,
                   pageNumber: newPage,
                 };
+              });
+              
+              // 새 페이지에 복사된 영역 저장
+              setCropAreasByPage(prev => {
+                const newMap = new Map(prev);
+                newMap.set(newPageKey, copiedAreas);
+                return newMap;
+              });
+              
+              // 첫 번째 영역을 현재 크롭으로 설정
+              if (copiedAreas[0] && copiedAreas[0].cropPercent) {
+                const firstArea = copiedAreas[0];
+                const restoredCrop: PixelCrop = {
+                  x: (firstArea.cropPercent.x / 100) * imgWidth,
+                  y: (firstArea.cropPercent.y / 100) * imgHeight,
+                  width: (firstArea.cropPercent.width / 100) * imgWidth,
+                  height: (firstArea.cropPercent.height / 100) * imgHeight,
+                  unit: 'px',
+                };
+                
+                setCurrentCrop({
+                  unit: 'px',
+                  x: restoredCrop.x,
+                  y: restoredCrop.y,
+                  width: restoredCrop.width,
+                  height: restoredCrop.height,
+                });
+                setCurrentCompletedCrop(restoredCrop);
               }
-              return {
-                ...area,
-                id: `crop-${nextCropId}-page-${newPage}-${area.id.split('-').slice(-1)[0]}`,
-                pageNumber: newPage,
-              };
-            });
-            
-            // 새 페이지에 복사된 영역 저장
-            setCropAreasByPage(prev => {
-              const newMap = new Map(prev);
-              newMap.set(newPageKey, copiedAreas);
-              return newMap;
-            });
-            
-            // 첫 번째 영역을 현재 크롭으로 설정
-            if (copiedAreas[0] && copiedAreas[0].cropPercent) {
-              const firstArea = copiedAreas[0];
+            }
+          } else if (newPageAreas.length > 0 && imgRef.current) {
+            // 새 페이지에 이미 크롭 영역이 있으면 첫 번째 영역을 현재 크롭으로 설정
+            const firstArea = newPageAreas[0];
+            if (firstArea.cropPercent) {
+              const imgWidth = imgRef.current.width;
+              const imgHeight = imgRef.current.height;
               const restoredCrop: PixelCrop = {
                 x: (firstArea.cropPercent.x / 100) * imgWidth,
                 y: (firstArea.cropPercent.y / 100) * imgHeight,
@@ -603,33 +633,10 @@ export default function Home() {
               setCurrentCompletedCrop(restoredCrop);
             }
           }
-        } else if (newPageAreas.length > 0 && imgRef.current) {
-          // 새 페이지에 이미 크롭 영역이 있으면 첫 번째 영역을 현재 크롭으로 설정
-          const firstArea = newPageAreas[0];
-          if (firstArea.cropPercent) {
-            const imgWidth = imgRef.current.width;
-            const imgHeight = imgRef.current.height;
-            const restoredCrop: PixelCrop = {
-              x: (firstArea.cropPercent.x / 100) * imgWidth,
-              y: (firstArea.cropPercent.y / 100) * imgHeight,
-              width: (firstArea.cropPercent.width / 100) * imgWidth,
-              height: (firstArea.cropPercent.height / 100) * imgHeight,
-              unit: 'px',
-            };
-            
-            setCurrentCrop({
-              unit: 'px',
-              x: restoredCrop.x,
-              y: restoredCrop.y,
-              width: restoredCrop.width,
-              height: restoredCrop.height,
-            });
-            setCurrentCompletedCrop(restoredCrop);
-          }
         }
       }, 100); // 이미지 로드 후 실행
     }
-  }, [totalPages, pdfCanvases, currentPage, isPdf, cropAreasByPage, getFirstPageCropAreas, nextCropId]);
+  }, [totalPages, pdfCanvases, isPdf, cropAreasByPage, getFirstPageCropAreas, nextCropId, isProcessing]);
 
   // 파일 선택 핸들러
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -719,7 +726,7 @@ export default function Home() {
 
   // OCR 실행
   const handleRunOCR = async () => {
-    if (!imageSrc || !imgRef.current) {
+    if (!imageSrc) {
       setError('이미지를 선택해주세요.');
       return;
     }
@@ -747,41 +754,43 @@ export default function Home() {
       // 각 크롭 영역에 대해 OCR 실행
       for (let areaIndex = 0; areaIndex < allCropAreas.length; areaIndex++) {
         const area = allCropAreas[areaIndex];
-        const cropArea: CropArea = {
-          x: area.completedCrop.x,
-          y: area.completedCrop.y,
-          width: area.completedCrop.width,
-          height: area.completedCrop.height,
-        };
-
+        
+        // 크롭 영역의 퍼센트 값을 사용하여 실제 픽셀 좌표 계산
+        let cropArea: CropArea;
+        
         if (isPdf && pdfFile && area.pageNumber !== undefined) {
           // PDF의 특정 페이지 처리 (해당 페이지의 크롭 영역 사용)
           setProcessingProgress(`영역 ${areaIndex + 1}/${allCropAreas.length} - 페이지 ${area.pageNumber} 처리 중...`);
-          const canvases = await renderPdfAllPagesToCanvases(pdfFile);
-          const canvas = canvases[area.pageNumber - 1];
+          
+          // PDF Canvas는 이미 렌더링되어 있으므로 재렌더링 불필요
+          const canvas = pdfCanvases[area.pageNumber - 1];
           
           if (!canvas) {
             continue;
           }
 
-          // 해당 페이지의 표시 크기와 원본 Canvas 크기 비율 계산
-          const displayWidth = imgRef.current.width;
-          const displayHeight = imgRef.current.height;
-          const naturalWidth = canvas.width;
-          const naturalHeight = canvas.height;
-          
-          const scaleX = naturalWidth / displayWidth;
-          const scaleY = naturalHeight / displayHeight;
+          // 크롭 영역의 퍼센트 값을 사용하여 Canvas 크기에 맞게 변환
+          if (area.cropPercent) {
+            const naturalWidth = canvas.width;
+            const naturalHeight = canvas.height;
+            
+            cropArea = {
+              x: (area.cropPercent.x / 100) * naturalWidth,
+              y: (area.cropPercent.y / 100) * naturalHeight,
+              width: (area.cropPercent.width / 100) * naturalWidth,
+              height: (area.cropPercent.height / 100) * naturalHeight,
+            };
+          } else {
+            // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
+            cropArea = {
+              x: area.completedCrop.x,
+              y: area.completedCrop.y,
+              width: area.completedCrop.width,
+              height: area.completedCrop.height,
+            };
+          }
 
-          // 크롭 영역을 원본 Canvas 크기에 맞게 조정
-          const adjustedCropArea: CropArea = {
-            x: cropArea.x * scaleX,
-            y: cropArea.y * scaleY,
-            width: cropArea.width * scaleX,
-            height: cropArea.height * scaleY,
-          };
-
-          const blob = await cropImageToBlob(canvas, adjustedCropArea);
+          const blob = await cropImageToBlob(canvas, cropArea);
 
           // 크롭된 이미지 미리보기 생성
           const previewUrl = URL.createObjectURL(blob);
@@ -811,7 +820,33 @@ export default function Home() {
           }
         } else {
           // 이미지 파일 처리
+          if (!imgRef.current) {
+            continue;
+          }
+          
           setProcessingProgress(`영역 ${areaIndex + 1}/${allCropAreas.length} 처리 중...`);
+          
+          // 크롭 영역의 퍼센트 값을 사용하여 실제 픽셀 좌표 계산
+          if (area.cropPercent) {
+            const naturalWidth = imgRef.current.naturalWidth;
+            const naturalHeight = imgRef.current.naturalHeight;
+            
+            cropArea = {
+              x: (area.cropPercent.x / 100) * naturalWidth,
+              y: (area.cropPercent.y / 100) * naturalHeight,
+              width: (area.cropPercent.width / 100) * naturalWidth,
+              height: (area.cropPercent.height / 100) * naturalHeight,
+            };
+          } else {
+            // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
+            cropArea = {
+              x: area.completedCrop.x,
+              y: area.completedCrop.y,
+              width: area.completedCrop.width,
+              height: area.completedCrop.height,
+            };
+          }
+          
           const blob = await cropImageToBlob(imgRef.current, cropArea);
 
           // 크롭된 이미지 미리보기 생성
@@ -980,6 +1015,11 @@ export default function Home() {
                   </button>
                   <span className="text-sm text-gray-700">
                     페이지 {currentPage} / {totalPages}
+                    {isProcessing && (
+                      <span className="ml-2 text-xs text-blue-600">
+                        (OCR 진행 중...)
+                      </span>
+                    )}
                   </span>
                   <button
                     onClick={() => handlePageChange(currentPage + 1)}
