@@ -19,7 +19,8 @@ export async function renderPdfFirstPageToCanvas(
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const page = await pdf.getPage(1); // 첫 페이지
 
-  const viewport = page.getViewport({ scale: 2.0 });
+  // 원본 크기로 렌더링 (scale: 1.0 = 72 DPI, PDF의 기본 크기)
+  const viewport = page.getViewport({ scale: 1.0 });
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
 
@@ -51,7 +52,8 @@ export async function renderPdfAllPagesToCanvases(
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2.0 });
+    // 원본 크기로 렌더링 (scale: 1.0 = 72 DPI, PDF의 기본 크기)
+  const viewport = page.getViewport({ scale: 1.0 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
 

@@ -15,7 +15,8 @@ export interface CropArea {
  */
 export async function cropImageToBlob(
   imageElement: HTMLImageElement | HTMLCanvasElement,
-  cropArea: CropArea
+  cropArea: CropArea,
+  displaySize?: { width: number; height: number }
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -27,11 +28,13 @@ export async function cropImageToBlob(
     }
 
     if (imageElement instanceof HTMLImageElement) {
-      // 이미지의 원본 크기와 표시 크기
+      // 이미지의 원본 크기
       const naturalWidth = imageElement.naturalWidth;
       const naturalHeight = imageElement.naturalHeight;
-      const displayWidth = imageElement.width;
-      const displayHeight = imageElement.height;
+      
+      // 표시 크기: displaySize가 제공되면 사용, 아니면 imageElement.width/height 사용
+      const displayWidth = displaySize?.width || imageElement.width;
+      const displayHeight = displaySize?.height || imageElement.height;
 
       // 표시 크기와 원본 크기의 비율 계산
       const scaleX = naturalWidth / displayWidth;

@@ -5,7 +5,9 @@ import ReactCrop, { Crop, PixelCrop, makeAspectCrop, centerCrop } from 'react-im
 import 'react-image-crop/dist/ReactCrop.css';
 import { renderPdfFirstPageToCanvas, renderPdfAllPagesToCanvases, getPdfPageCount } from '@/utils/pdfUtils';
 import { cropImageToBlob, CropArea } from '@/utils/cropUtils';
-import { Upload, X, Loader2, ChevronLeft, ChevronRight, Plus, Save, FolderOpen, Trash2 } from 'lucide-react';
+import { Upload, X, Loader2, ChevronLeft, ChevronRight, Plus, Save, FolderOpen, Trash2, Edit2 } from 'lucide-react';
+import { useLanguage } from '@/lib/i18n';
+import LandingState from '@/components/LandingState';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 const OCR_RESULT_STORAGE_KEY = 'ocr_result';
@@ -29,6 +31,7 @@ interface CropAreaData {
 }
 
 export default function Home() {
+  const { t } = useLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [currentCrop, setCurrentCrop] = useState<Crop>();
@@ -149,12 +152,11 @@ export default function Home() {
 
   // 이미지 로드 핸들러
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { width, height } = e.currentTarget;
-    
     if (!imgRef.current) return;
     
-    const imgWidth = imgRef.current.width;
-    const imgHeight = imgRef.current.height;
+    // 현재 화면에 보이는 이미지 크기 (반응형 대응)
+    const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
+    const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
     
     // 현재 페이지의 크롭 영역 복원
     const pageKey = isPdf ? currentPage : undefined;
@@ -164,11 +166,17 @@ export default function Home() {
     if (currentAreas.length > 0) {
       const restoredAreas = currentAreas.map(area => {
         if (area.cropPercent) {
+          // cropPercent (0~100%)를 비율(0.0~1.0)로 변환 후 현재 이미지 크기 곱하기
+          const ratioX = area.cropPercent.x / 100;
+          const ratioY = area.cropPercent.y / 100;
+          const ratioWidth = area.cropPercent.width / 100;
+          const ratioHeight = area.cropPercent.height / 100;
+          
           const newCrop: PixelCrop = {
-            x: (area.cropPercent.x / 100) * imgWidth,
-            y: (area.cropPercent.y / 100) * imgHeight,
-            width: (area.cropPercent.width / 100) * imgWidth,
-            height: (area.cropPercent.height / 100) * imgHeight,
+            x: ratioX * displayedWidth,
+            y: ratioY * displayedHeight,
+            width: ratioWidth * displayedWidth,
+            height: ratioHeight * displayedHeight,
             unit: 'px',
           };
           return {
@@ -195,11 +203,16 @@ export default function Home() {
       // 첫 번째 영역을 현재 크롭으로 설정
       const firstArea = restoredAreas[0];
       if (firstArea.cropPercent) {
+        const ratioX = firstArea.cropPercent.x / 100;
+        const ratioY = firstArea.cropPercent.y / 100;
+        const ratioWidth = firstArea.cropPercent.width / 100;
+        const ratioHeight = firstArea.cropPercent.height / 100;
+        
         const restoredCrop: PixelCrop = {
-          x: (firstArea.cropPercent.x / 100) * imgWidth,
-          y: (firstArea.cropPercent.y / 100) * imgHeight,
-          width: (firstArea.cropPercent.width / 100) * imgWidth,
-          height: (firstArea.cropPercent.height / 100) * imgHeight,
+          x: ratioX * displayedWidth,
+          y: ratioY * displayedHeight,
+          width: ratioWidth * displayedWidth,
+          height: ratioHeight * displayedHeight,
           unit: 'px',
         };
         
@@ -219,11 +232,16 @@ export default function Home() {
         // 첫 페이지의 모든 크롭 영역을 현재 페이지에 복사
         const copiedAreas = firstPageAreas.map(area => {
           if (area.cropPercent) {
+            const ratioX = area.cropPercent.x / 100;
+            const ratioY = area.cropPercent.y / 100;
+            const ratioWidth = area.cropPercent.width / 100;
+            const ratioHeight = area.cropPercent.height / 100;
+            
             const newCrop: PixelCrop = {
-              x: (area.cropPercent.x / 100) * imgWidth,
-              y: (area.cropPercent.y / 100) * imgHeight,
-              width: (area.cropPercent.width / 100) * imgWidth,
-              height: (area.cropPercent.height / 100) * imgHeight,
+              x: ratioX * displayedWidth,
+              y: ratioY * displayedHeight,
+              width: ratioWidth * displayedWidth,
+              height: ratioHeight * displayedHeight,
               unit: 'px',
             };
             return {
@@ -256,11 +274,16 @@ export default function Home() {
         // 첫 번째 영역을 현재 크롭으로 설정
         const firstPageArea = firstPageAreas[0];
         if (firstPageArea.cropPercent) {
+          const ratioX = firstPageArea.cropPercent.x / 100;
+          const ratioY = firstPageArea.cropPercent.y / 100;
+          const ratioWidth = firstPageArea.cropPercent.width / 100;
+          const ratioHeight = firstPageArea.cropPercent.height / 100;
+          
           const defaultCrop: PixelCrop = {
-            x: (firstPageArea.cropPercent.x / 100) * imgWidth,
-            y: (firstPageArea.cropPercent.y / 100) * imgHeight,
-            width: (firstPageArea.cropPercent.width / 100) * imgWidth,
-            height: (firstPageArea.cropPercent.height / 100) * imgHeight,
+            x: ratioX * displayedWidth,
+            y: ratioY * displayedHeight,
+            width: ratioWidth * displayedWidth,
+            height: ratioHeight * displayedHeight,
             unit: 'px',
           };
           
@@ -279,9 +302,35 @@ export default function Home() {
   
   // 현재 크롭 완료 핸들러
   const onCropComplete = useCallback((crop: PixelCrop) => {
-    setCurrentCompletedCrop(crop);
-    // 크롭 완료 시 편집 모드가 아니면 자동으로 편집 모드로 전환하지 않음
-    // 사용자가 명시적으로 버튼을 클릭하도록 함
+    // 크롭이 완료되면 즉시 currentCompletedCrop 설정
+    // 핵심: 픽셀 값을 비율(0.0 ~ 1.0)로 변환하여 저장 (제미나이 제안 반영)
+    if (crop && crop.width > 0 && crop.height > 0) {
+      if (imgRef.current) {
+        // 현재 화면에 보이는 이미지 크기 (clientWidth/clientHeight 사용)
+        const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
+        const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
+        
+        // 픽셀 -> 비율 변환 (0.0 ~ 1.0)
+        // 예: 화면 너비 1000px에서 x가 100px이면 -> 0.1 (10%)
+        const cropRatio = {
+          x: crop.x / displayedWidth,
+          y: crop.y / displayedHeight,
+          width: crop.width / displayedWidth,
+          height: crop.height / displayedHeight,
+        };
+        
+        // 비율을 포함한 확장된 crop 객체 저장
+        setCurrentCompletedCrop({
+          ...crop,
+          // @ts-ignore - cropRatio를 임시로 저장 (0.0~1.0 범위)
+          _cropRatio: cropRatio,
+          _displayedWidth: displayedWidth,
+          _displayedHeight: displayedHeight,
+        });
+      } else {
+        setCurrentCompletedCrop(crop);
+      }
+    }
   }, []);
 
   // 크롭 영역 드래그 시작
@@ -427,15 +476,41 @@ export default function Home() {
   const addCropArea = useCallback(() => {
     if (!imgRef.current || !currentCompletedCrop) return;
     
-    const imgWidth = imgRef.current.width;
-    const imgHeight = imgRef.current.height;
+    // 현재 화면에 보이는 이미지 크기 (반응형 대응)
+    const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
+    const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
+    
     const pageKey = isPdf ? currentPage : undefined;
     
+    // currentCompletedCrop에 저장된 cropRatio 사용 (onCropComplete에서 계산됨, 0.0~1.0 범위)
+    // @ts-ignore
+    let cropRatio = currentCompletedCrop._cropRatio;
+    
+    if (!cropRatio) {
+      // cropRatio가 없으면 현재 크기 기준으로 계산 (이전 호환성)
+      cropRatio = {
+        x: currentCompletedCrop.x / displayedWidth,
+        y: currentCompletedCrop.y / displayedHeight,
+        width: currentCompletedCrop.width / displayedWidth,
+        height: currentCompletedCrop.height / displayedHeight,
+      };
+    }
+    
+    // 비율을 퍼센트로 변환하여 저장 (0.0~1.0 -> 0~100%)
     const cropPercent = {
-      x: (currentCompletedCrop.x / imgWidth) * 100,
-      y: (currentCompletedCrop.y / imgHeight) * 100,
-      width: (currentCompletedCrop.width / imgWidth) * 100,
-      height: (currentCompletedCrop.height / imgHeight) * 100,
+      x: cropRatio.x * 100,
+      y: cropRatio.y * 100,
+      width: cropRatio.width * 100,
+      height: cropRatio.height * 100,
+    };
+    
+    // 현재 이미지 크기에 맞는 픽셀 좌표 계산 (표시용)
+    const finalCrop: PixelCrop = {
+      x: cropRatio.x * displayedWidth,
+      y: cropRatio.y * displayedHeight,
+      width: cropRatio.width * displayedWidth,
+      height: cropRatio.height * displayedHeight,
+      unit: 'px',
     };
     
     setCropAreasByPage(prev => {
@@ -450,12 +525,12 @@ export default function Home() {
                 ...area,
                 crop: {
                   unit: 'px',
-                  x: currentCompletedCrop.x,
-                  y: currentCompletedCrop.y,
-                  width: currentCompletedCrop.width,
-                  height: currentCompletedCrop.height,
+                  x: finalCrop.x,
+                  y: finalCrop.y,
+                  width: finalCrop.width,
+                  height: finalCrop.height,
                 },
-                completedCrop: currentCompletedCrop,
+                completedCrop: finalCrop,
                 cropPercent,
               }
             : area
@@ -467,12 +542,12 @@ export default function Home() {
           id: `crop-${nextCropId}`,
           crop: {
             unit: 'px',
-            x: currentCompletedCrop.x,
-            y: currentCompletedCrop.y,
-            width: currentCompletedCrop.width,
-            height: currentCompletedCrop.height,
+            x: finalCrop.x,
+            y: finalCrop.y,
+            width: finalCrop.width,
+            height: finalCrop.height,
           },
-          completedCrop: currentCompletedCrop,
+          completedCrop: finalCrop,
           cropPercent,
           pageNumber: pageKey,
         };
@@ -826,28 +901,44 @@ export default function Home() {
           
           setProcessingProgress(`영역 ${areaIndex + 1}/${allCropAreas.length} 처리 중...`);
           
-          // 크롭 영역의 퍼센트 값을 사용하여 실제 픽셀 좌표 계산
+          // 원본 이미지 크기 (naturalWidth/naturalHeight) - 백엔드 전송 시 사용
+          const naturalWidth = imgRef.current.naturalWidth;
+          const naturalHeight = imgRef.current.naturalHeight;
+          
+          // 현재 화면에 보이는 이미지 크기 (clientWidth/clientHeight)
+          const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
+          const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
+          
+          // 크롭 영역의 비율을 사용하여 원본 이미지 크기 기준 픽셀 좌표 계산
           if (area.cropPercent) {
-            const naturalWidth = imgRef.current.naturalWidth;
-            const naturalHeight = imgRef.current.naturalHeight;
+            // cropPercent (0~100%)를 비율(0.0~1.0)로 변환
+            const ratioX = area.cropPercent.x / 100;
+            const ratioY = area.cropPercent.y / 100;
+            const ratioWidth = area.cropPercent.width / 100;
+            const ratioHeight = area.cropPercent.height / 100;
             
+            // 비율 * 원본 크기 = 실제 원본 이미지 좌표 (제미나이 제안 반영)
             cropArea = {
-              x: (area.cropPercent.x / 100) * naturalWidth,
-              y: (area.cropPercent.y / 100) * naturalHeight,
-              width: (area.cropPercent.width / 100) * naturalWidth,
-              height: (area.cropPercent.height / 100) * naturalHeight,
+              x: ratioX * naturalWidth,
+              y: ratioY * naturalHeight,
+              width: ratioWidth * naturalWidth,
+              height: ratioHeight * naturalHeight,
             };
           } else {
             // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
+            // completedCrop은 표시 크기 기준이므로 원본 크기로 변환 필요
+            const scaleX = naturalWidth / displayedWidth;
+            const scaleY = naturalHeight / displayedHeight;
+            
             cropArea = {
-              x: area.completedCrop.x,
-              y: area.completedCrop.y,
-              width: area.completedCrop.width,
-              height: area.completedCrop.height,
+              x: area.completedCrop.x * scaleX,
+              y: area.completedCrop.y * scaleY,
+              width: area.completedCrop.width * scaleX,
+              height: area.completedCrop.height * scaleY,
             };
           }
           
-          const blob = await cropImageToBlob(imgRef.current, cropArea);
+          const blob = await cropImageToBlob(imgRef.current, cropArea, { width: displayedWidth, height: displayedHeight });
 
           // 크롭된 이미지 미리보기 생성
           const previewUrl = URL.createObjectURL(blob);
@@ -923,372 +1014,496 @@ export default function Home() {
     }
   };
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">
-            IO-VISION OCR - 특정영역추출 서비스
-          </h1>
-          {(file || ocrResult) && (
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
-            >
-              <X className="w-4 h-4 mr-2" />
-              Reset
-            </button>
-          )}
-        </div>
+  // Landing State: 파일이 없을 때
+  if (!file && !imageSrc) {
+    return <LandingState onFileSelect={handleFileSelect} fileInputRef={fileInputRef} />;
+  }
 
-        {/* 파일 업로드 */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            파일 업로드 (이미지 또는 PDF)
-          </label>
-          <div className="flex items-center space-x-4">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.pdf"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="file-upload"
-            />
-            <label
-              htmlFor="file-upload"
-              className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              파일 선택
-            </label>
-            {file && (
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">{file.name}</span>
-                <button
-                  onClick={handleReset}
-                  className="text-red-600 hover:text-red-800"
-                  disabled={isUploading}
+  // Workspace State: 파일이 있을 때 (3-Column IDE Layout)
+  return (
+    <div className="h-[calc(100vh-4rem)] flex flex-col">
+      {/* Top Bar */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center">
+        <h1 className="text-lg font-semibold text-gray-900">
+          {file?.name || 'Workspace'}
+        </h1>
+        <button
+          onClick={handleReset}
+          className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
+        >
+          <X className="w-4 h-4 mr-2" />
+          {t('common.reset')}
+        </button>
+      </div>
+
+      {/* 3-Column Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar: PDF Page Navigation */}
+        {isPdf && totalPages > 1 && (
+          <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto">
+            <div className="p-4 border-b border-gray-200">
+              <h2 className="text-sm font-semibold text-gray-900 mb-3">
+                {t('workspace.leftSidebar.title')}
+              </h2>
+            </div>
+            <div className="p-2 space-y-2">
+              {pdfCanvases.map((canvas, index) => {
+                const pageNum = index + 1;
+                const isActive = currentPage === pageNum;
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => handlePageChange(pageNum)}
+                    disabled={isProcessing}
+                    className={`w-full p-3 border-2 rounded-md text-left transition-colors ${
+                      isActive
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                    } ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className="text-xs font-medium text-gray-700 mb-2">
+                      {t('workspace.leftSidebar.thumbnail')} {pageNum}
+                    </div>
+                    <img
+                      src={canvas.toDataURL('image/png')}
+                      alt={`Page ${pageNum} thumbnail`}
+                      className="w-full h-auto rounded border border-gray-200"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Center Canvas: Main Viewer - 2개로 분할 */}
+        <div className="flex-1 flex bg-gray-50 overflow-hidden">
+          {/* 왼쪽: 페이지 이미지 영역 (2배 확대) */}
+          <div className="flex-[2] flex flex-col bg-gray-50 overflow-hidden border-r border-gray-200">
+            {/* Upload Progress */}
+            {isUploading && (
+              <div className="px-6 py-3 bg-white border-b border-gray-200 flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-700">{t('upload.processing')}</span>
+                  <span className="text-sm text-gray-500">{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error Message - 상단 고정 */}
+            {error && (
+              <div className="px-6 py-3 bg-red-50 border-b border-red-200 flex-shrink-0">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+            
+            {/* Scrollable Canvas Area - 이미지가 한 화면에 다 보이도록 */}
+            <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-auto min-h-0">
+            {imageSrc ? (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <ReactCrop
+                  crop={currentCrop}
+                  onChange={(_, percentCrop) => setCurrentCrop(percentCrop)}
+                  onComplete={onCropComplete}
+                  aspect={undefined}
+                  minWidth={50}
+                  minHeight={50}
                 >
-                  <X className="w-4 h-4" />
+                  <img
+                    key={file?.name || imageSrc}
+                    ref={imgRef}
+                    src={imageSrc}
+                    alt="Uploaded"
+                    onLoad={onImageLoad}
+                    className="rounded-lg shadow-lg"
+                    style={{ 
+                      display: 'block',
+                      width: 'auto',
+                      height: 'auto',
+                      // 원본 크기로 고정 (반응형 크기 조정 없음)
+                      maxWidth: 'none',
+                      maxHeight: 'none'
+                    }}
+                    onLoad={(e) => {
+                      // 이미지 로드 후 실제 렌더링 크기 확인
+                      const img = e.currentTarget;
+                      const rect = img.getBoundingClientRect();
+                      console.log('Image loaded - DOM size:', img.width, 'x', img.height);
+                      console.log('Image loaded - getBoundingClientRect:', rect.width, 'x', rect.height);
+                      console.log('Image loaded - natural size:', img.naturalWidth, 'x', img.naturalHeight);
+                      onImageLoad(e);
+                    }}
+                  />
+                </ReactCrop>
+                {/* 저장된 크롭 영역들을 오버레이로 표시 - 다중 크롭 지원 */}
+                {imgRef.current && getCurrentPageCropAreas().map((area, index) => {
+                  const isEditing = editingAreaId === area.id;
+                  
+                  // 핵심: 저장된 cropPercent 값을 그대로 CSS % 단위로 사용 (픽셀 계산 없이)
+                  // CSS는 %를 지원하므로 계산 불필요 - 화면 크기가 변해도 자동으로 맞춰짐
+                  let leftPercent: number;
+                  let topPercent: number;
+                  let widthPercent: number;
+                  let heightPercent: number;
+                  
+                  if (area.cropPercent) {
+                    // cropPercent (0~100%)를 그대로 CSS %로 사용
+                    leftPercent = area.cropPercent.x;
+                    topPercent = area.cropPercent.y;
+                    widthPercent = area.cropPercent.width;
+                    heightPercent = area.cropPercent.height;
+                  } else {
+                    // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
+                    // 현재 화면 크기 기준으로 % 계산
+                    const displayedWidth = imgRef.current!.clientWidth || imgRef.current!.getBoundingClientRect().width;
+                    const displayedHeight = imgRef.current!.clientHeight || imgRef.current!.getBoundingClientRect().height;
+                    leftPercent = (area.completedCrop.x / displayedWidth) * 100;
+                    topPercent = (area.completedCrop.y / displayedHeight) * 100;
+                    widthPercent = (area.completedCrop.width / displayedWidth) * 100;
+                    heightPercent = (area.completedCrop.height / displayedHeight) * 100;
+                  }
+                  
+                  return (
+                    <div
+                      key={area.id}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        handleCropAreaMouseDown(e, area.id);
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // 드래그가 아닌 경우에만 편집 모드로 전환
+                        if (!hasDragged && !draggingAreaId) {
+                          handleCropAreaClick(area.id);
+                        }
+                      }}
+                      className={`absolute border-2 bg-opacity-20 cursor-move transition-all select-none ${
+                        isEditing 
+                          ? 'border-yellow-500 bg-yellow-500 z-10' 
+                          : draggingAreaId === area.id
+                          ? 'border-purple-500 bg-purple-500 z-10'
+                          : 'border-blue-500 bg-blue-500 hover:border-blue-600 hover:bg-blue-600'
+                      }`}
+                      style={{
+                        left: `${leftPercent}%`,
+                        top: `${topPercent}%`,
+                        width: `${widthPercent}%`,
+                        height: `${heightPercent}%`,
+                        userSelect: 'none',
+                      }}
+                      title={isEditing 
+                        ? `${t('crop.update')} - ${t('workspace.centerCanvas.selectArea')}` 
+                        : draggingAreaId === area.id 
+                        ? `${t('crop.selectedAreas')} ${index + 1} - 드래그하여 이동 중...` 
+                        : `${t('crop.selectedAreas')} ${index + 1} - 드래그하여 이동 또는 클릭하여 편집`}
+                    >
+                      {/* 영역 번호 표시 */}
+                      <div className="absolute -top-6 left-0 bg-blue-600 text-white text-xs px-2 py-0.5 rounded shadow-md whitespace-nowrap">
+                        {t('ocr.region')} {index + 1}
+                      </div>
+                      {/* 삭제 버튼 */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeCropArea(area.id);
+                          if (editingAreaId === area.id) {
+                            setEditingAreaId(null);
+                            setCurrentCrop(undefined);
+                            setCurrentCompletedCrop(undefined);
+                          }
+                        }}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 pointer-events-auto shadow-md z-20 transition-transform hover:scale-110"
+                        title={t('crop.delete')}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-400">
+                {isUploading ? t('upload.processing') : t('errors.noImage')}
+              </div>
+            )}
+            </div>
+
+            {/* Page Navigation (for PDF) */}
+            {isPdf && totalPages > 1 && (
+              <div className="px-6 py-3 bg-white border-t border-gray-200 flex items-center justify-center space-x-4 flex-shrink-0">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1 || isProcessing}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  {t('workspace.pageNavigation.previous')}
+                </button>
+                <span className="text-sm text-gray-700">
+                  {t('workspace.pageNavigation.current')} {currentPage} {t('workspace.pageNavigation.of')} {totalPages}
+                  {isProcessing && (
+                    <span className="ml-2 text-xs text-blue-600">
+                      {t('workspace.pageNavigation.ocrInProgress')}
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages || isProcessing}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t('workspace.pageNavigation.next')}
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             )}
           </div>
-          {/* 업로드 진행 상황 표시 */}
-          {isUploading && (
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-700">파일 처리 중...</span>
-                <span className="text-sm text-gray-500">{uploadProgress}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div
-                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-        </div>
 
-        {/* 이미지 크롭 영역 */}
-        {imageSrc && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">
-                영역 선택 (드래그하여 크롭할 영역을 선택하세요)
-                {isPdf && (
-                  <span className="ml-2 text-sm font-normal text-gray-600">
-                    (PDF: 모든 페이지에서 동일한 영역이 추출됩니다)
-                  </span>
-                )}
-              </h2>
-              {isPdf && totalPages > 1 && (
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-sm text-gray-700">
-                    페이지 {currentPage} / {totalPages}
-                    {isProcessing && (
-                      <span className="ml-2 text-xs text-blue-600">
-                        (OCR 진행 중...)
-                      </span>
+          {/* 오른쪽: 선택 영역 관리 섹션 (너비 축소) */}
+          <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 flex-shrink-0">
+              <h3 className="text-sm font-semibold text-gray-900">
+                {t('crop.selectedAreas')}
+              </h3>
+            </div>
+            <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+              {/* Crop Area Add/Update Controls */}
+              {(currentCompletedCrop || currentCrop) && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <div className="space-y-2">
+                    {currentCompletedCrop ? (
+                      <>
+                        <p className="text-xs font-semibold text-blue-900">
+                          {editingAreaId ? t('crop.updateQuestion') : t('crop.addQuestion')}
+                        </p>
+                        <p className="text-xs text-blue-700">
+                          {t('crop.areaSize')}: {Math.round(currentCompletedCrop.width)} × {Math.round(currentCompletedCrop.height)}px
+                        </p>
+                        <div className="flex gap-2 mt-2">
+                          {editingAreaId && (
+                            <button
+                              onClick={() => {
+                                setEditingAreaId(null);
+                                setCurrentCrop(undefined);
+                                setCurrentCompletedCrop(undefined);
+                              }}
+                              className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              {t('common.cancel')}
+                            </button>
+                          )}
+                          <button
+                            onClick={addCropArea}
+                            className={`flex-1 inline-flex items-center justify-center px-3 py-2 border rounded-md shadow-sm text-xs font-medium text-white transition-colors ${
+                              editingAreaId
+                                ? 'border-yellow-500 bg-yellow-600 hover:bg-yellow-700'
+                                : 'border-green-500 bg-green-600 hover:bg-green-700'
+                            }`}
+                          >
+                            {editingAreaId ? (
+                              <>
+                                <Save className="w-3 h-3 mr-1" />
+                                {t('crop.update')}
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="w-3 h-3 mr-1" />
+                                {t('crop.add')}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-xs text-blue-700">
+                        {t('workspace.centerCanvas.selectArea')}
+                      </p>
                     )}
-                  </span>
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  </div>
                 </div>
               )}
-            </div>
-            <div className="flex justify-center bg-gray-100 p-4 rounded-lg">
-              {imageSrc ? (
-                <div className="relative inline-block">
-                  <ReactCrop
-                    crop={currentCrop}
-                    onChange={(_, percentCrop) => setCurrentCrop(percentCrop)}
-                    onComplete={onCropComplete}
-                    aspect={undefined}
-                    minWidth={50}
-                    minHeight={50}
-                  >
-                    <img
-                      key={file?.name || imageSrc}
-                      ref={imgRef}
-                      src={imageSrc}
-                      alt="Uploaded"
-                      onLoad={onImageLoad}
-                      style={{ maxWidth: '100%', maxHeight: '600px', display: 'block' }}
-                    />
-                  </ReactCrop>
-                  {/* 저장된 크롭 영역들을 오버레이로 표시 */}
-                  {imgRef.current && getCurrentPageCropAreas().map((area) => {
-                    const imgWidth = imgRef.current!.width;
-                    const imgHeight = imgRef.current!.height;
-                    const isEditing = editingAreaId === area.id;
-                    return (
-                      <div
-                        key={area.id}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          handleCropAreaMouseDown(e, area.id);
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // 드래그가 아닌 경우에만 편집 모드로 전환
-                          if (!hasDragged && !draggingAreaId) {
-                            handleCropAreaClick(area.id);
-                          }
-                        }}
-                        className={`absolute border-2 bg-opacity-20 cursor-move transition-all select-none ${
-                          isEditing 
-                            ? 'border-yellow-500 bg-yellow-500 z-10' 
-                            : draggingAreaId === area.id
-                            ? 'border-purple-500 bg-purple-500 z-10'
-                            : 'border-blue-500 bg-blue-500 hover:border-blue-600 hover:bg-blue-600'
-                        }`}
-                        style={{
-                          left: `${(area.crop.x / imgWidth) * 100}%`,
-                          top: `${(area.crop.y / imgHeight) * 100}%`,
-                          width: `${(area.crop.width / imgWidth) * 100}%`,
-                          height: `${(area.crop.height / imgHeight) * 100}%`,
-                          userSelect: 'none',
-                        }}
-                        title={isEditing ? '편집 중 - 드래그하여 이동하거나 크롭 영역을 다시 선택하세요' : draggingAreaId === area.id ? '드래그하여 이동 중...' : '드래그하여 이동 또는 클릭하여 편집'}
-                      >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeCropArea(area.id);
-                            if (editingAreaId === area.id) {
-                              setEditingAreaId(null);
+              
+              {/* Selected Areas List */}
+              {(() => {
+                const currentAreas = getCurrentPageCropAreas();
+                const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
+                return (
+                  <div className="space-y-2">
+                    {currentAreas.length > 0 && (
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-gray-700">
+                          {isPdf ? `${t('crop.currentPageAreas')} ${currentPage}: ${currentAreas.length}${t('crop.areas')}` : `${currentAreas.length}${t('crop.areas')}`}
+                        </span>
+                        {isPdf && allAreasCount > currentAreas.length && (
+                          <span className="text-xs text-gray-500">
+                            ({t('crop.totalAreas')}: {allAreasCount})
+                          </span>
+                        )}
+                        {currentAreas.length > 0 && (
+                          <button
+                            onClick={() => {
+                              setCropAreasByPage(new Map());
+                              setNextCropId(1);
                               setCurrentCrop(undefined);
                               setCurrentCompletedCrop(undefined);
-                            }
-                          }}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 pointer-events-auto shadow-md z-20"
-                          title="영역 삭제"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                              setEditingAreaId(null);
+                              croppedPreviews.forEach(url => URL.revokeObjectURL(url));
+                              setCroppedPreviews(new Map());
+                            }}
+                            className="inline-flex items-center px-2 py-1 border border-red-300 rounded text-xs font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
+                            title={t('crop.deleteAll')}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            {t('crop.deleteAll')}
+                          </button>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-64 text-gray-400">
-                  {isUploading ? '파일 처리 중...' : '이미지를 선택해주세요'}
-                </div>
-              )}
-            </div>
-            {/* 선택된 영역 목록 */}
-            {(() => {
-              const currentAreas = getCurrentPageCropAreas();
-              const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
-              return currentAreas.length > 0 && (
-                <div className="mt-4 p-3 bg-gray-50 rounded-md">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">
-                      {isPdf ? `페이지 ${currentPage} 영역: ${currentAreas.length}개` : `선택된 영역: ${currentAreas.length}개`}
-                      {isPdf && allAreasCount > currentAreas.length && (
-                        <span className="ml-2 text-xs text-gray-500">
-                          (전체: {allAreasCount}개)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {currentAreas.map((area, index) => (
-                      <div
-                        key={area.id}
-                        className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 rounded-md text-sm"
-                      >
-                        <span>영역 {index + 1}</span>
-                        <button
-                          onClick={() => removeCropArea(area.id)}
-                          className="ml-2 text-blue-600 hover:text-blue-800"
-                          title="영역 삭제"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-            {/* 크롭 완료 시 영역 추가/업데이트 버튼 */}
-            {currentCompletedCrop && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-blue-900 mb-1">
-                      {editingAreaId ? '영역 크롭 완료 - 업데이트하시겠습니까?' : '영역 크롭 완료 - 추가하시겠습니까?'}
-                    </p>
-                    <p className="text-xs text-blue-700">
-                      크롭 영역: {Math.round(currentCompletedCrop.width)} × {Math.round(currentCompletedCrop.height)}px
-                    </p>
-                  </div>
-                  <div className="flex gap-2 ml-4">
-                    {editingAreaId && (
-                      <button
-                        onClick={() => {
-                          setEditingAreaId(null);
-                          setCurrentCrop(undefined);
-                          setCurrentCompletedCrop(undefined);
-                        }}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                      >
-                        <X className="w-4 h-4 mr-1" />
-                        취소
-                      </button>
                     )}
-                    <button
-                      onClick={addCropArea}
-                      className={`inline-flex items-center px-4 py-2 border rounded-md shadow-sm text-sm font-medium text-white ${
-                        editingAreaId
-                          ? 'border-yellow-500 bg-yellow-600 hover:bg-yellow-700'
-                          : 'border-green-500 bg-green-600 hover:bg-green-700'
-                      }`}
-                    >
-                      {editingAreaId ? (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          영역 업데이트
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-4 h-4 mr-2" />
-                          영역 추가
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* OCR 프롬프트 설정 */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  OCR 프롬프트 (선택사항)
-                </label>
-                <button
-                  onClick={() => setShowSavedPrompts(!showSavedPrompts)}
-                  className="inline-flex items-center px-2 py-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50"
-                  title="저장된 프롬프트 목록"
-                >
-                  <FolderOpen className="w-3 h-3 mr-1" />
-                  저장된 프롬프트
-                </button>
-              </div>
-              
-              {/* 저장된 프롬프트 목록 */}
-              {showSavedPrompts && (
-                <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                  {savedPrompts.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-2">저장된 프롬프트가 없습니다.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {savedPrompts.map((saved) => (
+                    <div className="space-y-1.5">
+                      {currentAreas.map((area, index) => (
                         <div
-                          key={saved.id}
-                          className="flex items-center justify-between p-2 bg-white border border-gray-200 rounded hover:bg-gray-50"
+                          key={area.id}
+                          className={`flex items-center justify-between p-2 rounded-md text-xs ${
+                            editingAreaId === area.id
+                              ? 'bg-yellow-50 border border-yellow-300'
+                              : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                          }`}
                         >
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{saved.name}</p>
-                            <p className="text-xs text-gray-500 truncate">{saved.prompt.substring(0, 50)}...</p>
-                          </div>
-                          <div className="flex gap-1 ml-2">
+                          <span className="font-medium text-gray-700">
+                            {t('ocr.region')} {index + 1}
+                          </span>
+                          <div className="flex gap-1">
                             <button
-                              onClick={() => loadSavedPrompt(saved.prompt)}
-                              className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
-                              title="불러오기"
+                              onClick={() => handleCropAreaClick(area.id)}
+                              className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                              title={t('crop.edit')}
                             >
-                              불러오기
+                              <Edit2 className="w-3 h-3" />
                             </button>
                             <button
-                              onClick={() => deleteSavedPrompt(saved.id)}
-                              className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
-                              title="삭제"
+                              onClick={() => removeCropArea(area.id)}
+                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                              title={t('crop.delete')}
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <X className="w-3 h-3" />
                             </button>
                           </div>
                         </div>
                       ))}
+                      {currentAreas.length === 0 && (
+                        <p className="text-xs text-gray-500 text-center py-4">
+                          {t('crop.noAreas')}
+                        </p>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
-              
-              {isEditingPrompt ? (
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Inspector: Prompt & Results */}
+        <div className="w-96 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+          {/* Custom Prompt Section (Collapsible) */}
+          <div className="border-b border-gray-200">
+            <button
+              onClick={() => setIsEditingPrompt(!isEditingPrompt)}
+              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <span className="text-sm font-semibold text-gray-900">
+                {t('workspace.rightInspector.prompt.title')}
+              </span>
+              <ChevronRight className={`w-4 h-4 text-gray-500 transition-transform ${isEditingPrompt ? 'rotate-90' : ''}`} />
+            </button>
+            {isEditingPrompt && (
+              <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3 max-h-96 overflow-y-auto">
+                {/* Saved Prompts List */}
+                {showSavedPrompts && (
+                  <div className="mb-3 p-3 bg-white border border-gray-200 rounded-md">
+                    {savedPrompts.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-2">{t('workspace.rightInspector.prompt.savedPrompts')}: {t('common.loading')}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {savedPrompts.map((saved) => (
+                          <div
+                            key={saved.id}
+                            className="flex items-center justify-between p-2 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{saved.name}</p>
+                              <p className="text-xs text-gray-500 truncate">{saved.prompt.substring(0, 50)}...</p>
+                            </div>
+                            <div className="flex gap-1 ml-2">
+                              <button
+                                onClick={() => loadSavedPrompt(saved.prompt)}
+                                className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                                title={t('workspace.rightInspector.prompt.load')}
+                              >
+                                {t('workspace.rightInspector.prompt.load')}
+                              </button>
+                              <button
+                                onClick={() => deleteSavedPrompt(saved.id)}
+                                className="px-2 py-1 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                                title={t('workspace.rightInspector.prompt.delete')}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Prompt Editor */}
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setShowSavedPrompts(!showSavedPrompts)}
+                      className="inline-flex items-center px-2 py-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50"
+                    >
+                      <FolderOpen className="w-3 h-3 mr-1" />
+                      {t('workspace.rightInspector.prompt.savedPrompts')}
+                    </button>
+                  </div>
                   <textarea
                     value={editingPromptValue}
                     onChange={(e) => setEditingPromptValue(e.target.value)}
-                    placeholder="프롬프트를 입력하세요..."
+                    placeholder={t('workspace.rightInspector.prompt.placeholder')}
                     className="w-full h-32 p-3 border border-blue-500 rounded-md text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    style={{ color: '#111827' }}
                     autoFocus
                   />
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-500">
-                      프롬프트를 비워두면 기본 프롬프트가 사용됩니다.
+                      {t('workspace.rightInspector.prompt.saveDialog')}
                     </p>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          // 취소 시 원래 값으로 복원 (customPrompt가 있으면 그것을, 없으면 기본 프롬프트)
                           setEditingPromptValue(customPrompt || DEFAULT_PROMPT);
                           setIsEditingPrompt(false);
                         }}
                         className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                       >
                         <X className="w-4 h-4 mr-1" />
-                        취소
+                        {t('workspace.rightInspector.prompt.cancel')}
                       </button>
                       <button
                         onClick={() => {
-                          // 저장 시: 빈 문자열이면 기본 프롬프트를 사용, 아니면 사용자 입력값 사용
-                          // 하지만 사용자가 기본 프롬프트를 그대로 두면 customPrompt를 비워서 기본값 사용
                           const finalPrompt = editingPromptValue.trim() === DEFAULT_PROMPT.trim() 
                             ? '' 
                             : editingPromptValue.trim();
                           setCustomPrompt(finalPrompt);
                           setIsEditingPrompt(false);
-                          // 프롬프트가 있으면 저장 다이얼로그 표시
                           if (finalPrompt) {
                             setShowSaveDialog(true);
                             setPromptName('');
@@ -1297,144 +1512,103 @@ export default function Home() {
                         className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
                       >
                         <Save className="w-4 h-4 mr-1" />
-                        저장
+                        {t('workspace.rightInspector.prompt.save')}
                       </button>
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div
-                  onClick={() => {
-                    // customPrompt가 있으면 그것을, 없으면 기본 프롬프트를 표시
-                    setEditingPromptValue(customPrompt || DEFAULT_PROMPT);
-                    setIsEditingPrompt(true);
-                  }}
-                  className="w-full min-h-[80px] p-3 border border-gray-300 rounded-md text-sm font-mono bg-gray-50 hover:bg-gray-100 cursor-text transition-colors"
-                >
-                  <pre className="whitespace-pre-wrap text-gray-900">
-                    {customPrompt || DEFAULT_PROMPT}
-                  </pre>
-                </div>
-              )}
-              
-              {/* 저장 다이얼로그 */}
-              {showSaveDialog && (
-                <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                  <p className="text-sm font-medium text-blue-900 mb-2">프롬프트를 저장하시겠습니까?</p>
-                  <input
-                    type="text"
-                    value={promptName}
-                    onChange={(e) => setPromptName(e.target.value)}
-                    placeholder="프롬프트 이름 (선택사항)"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 text-gray-900 bg-white"
-                    style={{ color: '#111827' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        savePromptToList(promptName, customPrompt);
-                      }
-                    }}
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        savePromptToList(promptName, customPrompt);
+                
+                {/* Save Dialog */}
+                {showSaveDialog && (
+                  <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-md">
+                    <p className="text-sm font-medium text-blue-900 mb-2">{t('workspace.rightInspector.prompt.saveDialog')}</p>
+                    <input
+                      type="text"
+                      value={promptName}
+                      onChange={(e) => setPromptName(e.target.value)}
+                      placeholder={t('workspace.rightInspector.prompt.promptName')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 text-gray-900 bg-white"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          savePromptToList(promptName, customPrompt);
+                        }
                       }}
-                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                    >
-                      저장
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowSaveDialog(false);
-                        setPromptName('');
-                      }}
-                      className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-                    >
-                      취소
-                    </button>
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => savePromptToList(promptName, customPrompt)}
+                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      >
+                        {t('common.save')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowSaveDialog(false);
+                          setPromptName('');
+                        }}
+                        className="px-3 py-1.5 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        {t('common.cancel')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* OCR Results Section */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900">
+                {t('workspace.rightInspector.results.title')}
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {ocrResult ? (
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-md p-4 border border-gray-200">
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono">
+                      {ocrResult}
+                    </pre>
                   </div>
                 </div>
+              ) : (
+                <div className="text-center text-gray-400 text-sm py-8">
+                  {t('workspace.rightInspector.results.noResults')}
+                </div>
               )}
             </div>
-            
-            <div className="flex justify-end">
-              <button
-                onClick={handleRunOCR}
-                disabled={isProcessing || (() => {
-                  const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
-                  return allAreasCount === 0;
-                })()}
-                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    {processingProgress || '처리 중...'}
-                  </>
-                ) : (
-                  (() => {
+          </div>
+
+          {/* Actions Bar (Sticky Bottom) */}
+          <div className="border-t border-gray-200 p-4 bg-gray-50 space-y-2">
+            <button
+              onClick={handleRunOCR}
+              disabled={isProcessing || (() => {
+                const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
+                return allAreasCount === 0;
+              })()}
+              className="w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {processingProgress || t('workspace.rightInspector.actions.processing')}
+                </>
+              ) : (
+                <>
+                  {t('workspace.rightInspector.actions.runOCR')}
+                  {(() => {
                     const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
-                    return isPdf ? `OCR 실행 (${allAreasCount}개 영역)` : `OCR 실행 (${allAreasCount}개 영역)`;
-                  })()
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 오류 메시지 */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-
-        {/* 크롭된 이미지 미리보기 */}
-        {croppedPreviews.size > 0 && (
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">크롭된 영역 미리보기:</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Array.from(cropAreasByPage.entries()).flatMap(([pageKey, areas]) =>
-                areas.map((area, index) => {
-                  const preview = croppedPreviews.get(area.id);
-                  if (!preview) return null;
-                  return (
-                    <div key={area.id} className="bg-white p-4 rounded border border-gray-200">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          {pageKey !== undefined ? `페이지 ${pageKey} - 영역 ${index + 1}` : `영역 ${index + 1}`}
-                        </span>
-                        <button
-                          onClick={() => removeCropArea(area.id)}
-                          className="text-red-600 hover:text-red-800"
-                          title="영역 삭제"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <img 
-                        src={preview} 
-                        alt={`Cropped area ${index + 1}`} 
-                        className="max-w-full h-auto border border-gray-300"
-                      />
-                    </div>
-                  );
-                })
+                    return allAreasCount > 0 ? ` (${allAreasCount})` : '';
+                  })()}
+                </>
               )}
-            </div>
+            </button>
           </div>
-        )}
-
-        {/* OCR 결과 */}
-        {ocrResult && (
-          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">추출된 텍스트:</h3>
-            <div className="bg-white p-4 rounded border border-gray-200">
-              <p className="text-gray-800 whitespace-pre-wrap">{ocrResult}</p>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
