@@ -172,21 +172,21 @@ export default function Home() {
           const ratioWidth = area.cropPercent.width / 100;
           const ratioHeight = area.cropPercent.height / 100;
           
-          const newCrop: PixelCrop = {
+      const newCrop: PixelCrop = {
             x: ratioX * displayedWidth,
             y: ratioY * displayedHeight,
             width: ratioWidth * displayedWidth,
             height: ratioHeight * displayedHeight,
-            unit: 'px',
-          };
+        unit: 'px',
+      };
           return {
             ...area,
             crop: {
-              unit: 'px',
-              x: newCrop.x,
-              y: newCrop.y,
-              width: newCrop.width,
-              height: newCrop.height,
+        unit: 'px',
+        x: newCrop.x,
+        y: newCrop.y,
+        width: newCrop.width,
+        height: newCrop.height,
             },
             completedCrop: newCrop,
           };
@@ -305,7 +305,7 @@ export default function Home() {
     // 크롭이 완료되면 즉시 currentCompletedCrop 설정
     // 핵심: 픽셀 값을 비율(0.0 ~ 1.0)로 변환하여 저장 (제미나이 제안 반영)
     if (crop && crop.width > 0 && crop.height > 0) {
-      if (imgRef.current) {
+    if (imgRef.current) {
         // 현재 화면에 보이는 이미지 크기 (clientWidth/clientHeight 사용)
         const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
         const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
@@ -383,8 +383,8 @@ export default function Home() {
       const area = currentAreas.find(a => a.id === draggingAreaId);
       
       if (area && imgRef.current) {
-        const imgWidth = imgRef.current.width;
-        const imgHeight = imgRef.current.height;
+      const imgWidth = imgRef.current.width;
+      const imgHeight = imgRef.current.height;
         
         // 이미지 경계 내로 제한
         const clampedX = Math.max(0, Math.min(newX, imgWidth - area.crop.width));
@@ -924,7 +924,7 @@ export default function Home() {
               width: ratioWidth * naturalWidth,
               height: ratioHeight * naturalHeight,
             };
-          } else {
+      } else {
             // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
             // completedCrop은 표시 크기 기준이므로 원본 크기로 변환 필요
             const scaleX = naturalWidth / displayedWidth;
@@ -940,28 +940,29 @@ export default function Home() {
           
           const blob = await cropImageToBlob(imgRef.current, cropArea, { width: displayedWidth, height: displayedHeight });
 
-          // 크롭된 이미지 미리보기 생성
-          const previewUrl = URL.createObjectURL(blob);
+        // 크롭된 이미지 미리보기 생성
+        const previewUrl = URL.createObjectURL(blob);
           newPreviews.set(area.id, previewUrl);
 
-          const formData = new FormData();
-          formData.append('file', blob, 'cropped.png');
-          formData.append('filename', file?.name || 'unknown');
-          if (customPrompt && customPrompt.trim()) {
-            formData.append('custom_prompt', customPrompt.trim());
-          }
+        const formData = new FormData();
+        formData.append('file', blob, 'cropped.png');
+        formData.append('filename', file?.name || 'unknown');
+        formData.append('page_number', String(0)); // 이미지 파일의 경우 page_number를 0으로 명시적으로 전송
+        if (customPrompt && customPrompt.trim()) {
+          formData.append('custom_prompt', customPrompt.trim());
+        }
 
-          const response = await fetch(`${BACKEND_URL}/ocr`, {
-            method: 'POST',
-            body: formData,
-          });
+        const response = await fetch(`${BACKEND_URL}/ocr`, {
+          method: 'POST',
+          body: formData,
+        });
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
             throw new Error(`영역 ${areaIndex + 1} 처리 실패: ${errorData.detail || 'OCR 처리에 실패했습니다.'}`);
-          }
+        }
 
-          const data = await response.json();
+        const data = await response.json();
           if (data.extracted_text && data.extracted_text.trim()) {
             allResults.push(`[영역 ${areaIndex + 1}]\n${data.extracted_text}`);
           }
@@ -1027,14 +1028,14 @@ export default function Home() {
         <h1 className="text-lg font-semibold text-gray-900">
           {file?.name || 'Workspace'}
         </h1>
-        <button
-          onClick={handleReset}
+                <button
+                  onClick={handleReset}
           className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 transition-colors"
-        >
+                >
           <X className="w-4 h-4 mr-2" />
           {t('common.reset')}
-        </button>
-      </div>
+                </button>
+              </div>
 
       {/* 3-Column Layout */}
       <div className="flex-1 flex overflow-hidden">
@@ -1045,7 +1046,7 @@ export default function Home() {
               <h2 className="text-sm font-semibold text-gray-900 mb-3">
                 {t('workspace.leftSidebar.title')}
               </h2>
-            </div>
+          </div>
             <div className="p-2 space-y-2">
               {pdfCanvases.map((canvas, index) => {
                 const pageNum = index + 1;
@@ -1081,31 +1082,31 @@ export default function Home() {
           {/* 왼쪽: 페이지 이미지 영역 (2배 확대) */}
           <div className="flex-[2] flex flex-col bg-gray-50 overflow-hidden border-r border-gray-200">
             {/* Upload Progress */}
-            {isUploading && (
+          {isUploading && (
               <div className="px-6 py-3 bg-white border-b border-gray-200 flex-shrink-0">
-                <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-700">{t('upload.processing')}</span>
-                  <span className="text-sm text-gray-500">{uploadProgress}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
+                <span className="text-sm text-gray-500">{uploadProgress}%</span>
               </div>
-            )}
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                  />
+              </div>
+            </div>
+          )}
 
             {/* Error Message - 상단 고정 */}
             {error && (
               <div className="px-6 py-3 bg-red-50 border-b border-red-200 flex-shrink-0">
                 <p className="text-sm text-red-800">{error}</p>
-              </div>
-            )}
+                </div>
+              )}
             
             {/* Scrollable Canvas Area - 이미지가 한 화면에 다 보이도록 */}
             <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-auto min-h-0">
-            {imageSrc ? (
+              {imageSrc ? (
               <div className="relative w-full h-full flex items-center justify-center">
                 <ReactCrop
                   crop={currentCrop}
@@ -1230,14 +1231,14 @@ export default function Home() {
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400">
                 {isUploading ? t('upload.processing') : t('errors.noImage')}
-              </div>
-            )}
+                </div>
+              )}
             </div>
 
             {/* Page Navigation (for PDF) */}
             {isPdf && totalPages > 1 && (
               <div className="px-6 py-3 bg-white border-t border-gray-200 flex items-center justify-center space-x-4 flex-shrink-0">
-                <button
+              <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1 || isProcessing}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -1311,14 +1312,14 @@ export default function Home() {
                               <>
                                 <Save className="w-3 h-3 mr-1" />
                                 {t('crop.update')}
-                              </>
-                            ) : (
+                  </>
+                ) : (
                               <>
                                 <Plus className="w-3 h-3 mr-1" />
                                 {t('crop.add')}
                               </>
-                            )}
-                          </button>
+                )}
+              </button>
                         </div>
                       </>
                     ) : (
@@ -1326,10 +1327,10 @@ export default function Home() {
                         {t('workspace.centerCanvas.selectArea')}
                       </p>
                     )}
-                  </div>
-                </div>
-              )}
-              
+            </div>
+          </div>
+        )}
+
               {/* Selected Areas List */}
               {(() => {
                 const currentAreas = getCurrentPageCropAreas();
@@ -1364,8 +1365,8 @@ export default function Home() {
                             {t('crop.deleteAll')}
                           </button>
                         )}
-                      </div>
-                    )}
+          </div>
+        )}
                     <div className="space-y-1.5">
                       {currentAreas.map((area, index) => (
                         <div
@@ -1551,9 +1552,9 @@ export default function Home() {
                       >
                         {t('common.cancel')}
                       </button>
-                    </div>
-                  </div>
-                )}
+            </div>
+          </div>
+        )}
               </div>
             )}
           </div>
@@ -1577,8 +1578,8 @@ export default function Home() {
               ) : (
                 <div className="text-center text-gray-400 text-sm py-8">
                   {t('workspace.rightInspector.results.noResults')}
-                </div>
-              )}
+          </div>
+        )}
             </div>
           </div>
 
@@ -1613,4 +1614,5 @@ export default function Home() {
     </div>
   );
 }
+
 

@@ -142,3 +142,5 @@ SQL 쿼리 예시:
 if __name__ == "__main__":
     main()
 
+
+

@@ -12,13 +12,16 @@ echo ""
 
 # Ollama 상태
 echo "[Ollama]"
-if pgrep -f "ollama serve" > /dev/null; then
+if ! command -v ollama &> /dev/null; then
+    echo "  상태: 설치되지 않음"
+    echo "  참고: OCR 기능을 사용하려면 Ollama를 설치하세요"
+elif pgrep -f "ollama serve" > /dev/null; then
     OLLAMA_PID=$(pgrep -f "ollama serve" | head -1)
     echo "  상태: 실행 중 (PID: $OLLAMA_PID)"
     if ollama list > /dev/null 2>&1; then
         echo "  연결: 정상"
         echo "  설치된 모델:"
-        ollama list | tail -n +2 | awk '{print "    - " $1}'
+        ollama list | tail -n +2 | awk '{print "    - " $1}' || echo "    (모델 없음)"
     else
         echo "  연결: 실패"
     fi

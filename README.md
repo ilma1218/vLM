@@ -42,7 +42,16 @@ vLM/
 3. **Ollama** 설치 및 모델 다운로드:
    ```bash
    # Ollama 설치 (https://ollama.ai)
+   curl -fsSL https://ollama.ai/install.sh | sh
+   
+   # Ollama 서버 시작 (백그라운드)
+   ollama serve
+   
+   # qwen2.5vl:7b 모델 다운로드 (OCR에 사용, 약 6GB)
    ollama pull qwen2.5vl:7b
+   
+   # 모델 확인
+   ollama list
    ```
 
 ## 빠른 시작

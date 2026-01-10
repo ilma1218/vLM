@@ -31,16 +31,31 @@ export default function MonitorPage() {
   const [editedText, setEditedText] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FileGroup | null>(null);
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
 
   const fetchHistory = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${BACKEND_URL}/history?grouped=true`);
+      const url = `${BACKEND_URL}/history?grouped=true`;
+      console.log('Fetching history from:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
       if (!response.ok) {
-        throw new Error('히스토리를 불러오는데 실패했습니다.');
+        const errorText = await response.text();
+        console.error('Response error:', response.status, errorText);
+        throw new Error(`히스토리를 불러오는데 실패했습니다. (${response.status}: ${response.statusText})`);
       }
+      
       const data = await response.json();
+      console.log('History data received:', data);
       setFiles(data);
       // 첫 번째 파일을 자동으로 확장
       if (data.length > 0 && expandedFiles.size === 0) {
@@ -50,7 +65,12 @@ export default function MonitorPage() {
         setExpandedFiles(new Set([firstGroupKey]));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      console.error('Fetch error:', err);
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError(`백엔드 서버에 연결할 수 없습니다. (${BACKEND_URL})`);
+      } else {
+        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -154,6 +174,49 @@ export default function MonitorPage() {
       setError(err instanceof Error ? err.message : '레코드 삭제 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteFile = async () => {
+    if (!fileToDelete) return;
+    
+    setIsDeletingFile(true);
+    setError(null);
+    try {
+      // 파일 그룹 삭제 API 호출
+      const url = fileToDelete.first_timestamp
+        ? `${BACKEND_URL}/history/file/${encodeURIComponent(fileToDelete.filename)}?first_timestamp=${encodeURIComponent(fileToDelete.first_timestamp)}`
+        : `${BACKEND_URL}/history/file/${encodeURIComponent(fileToDelete.filename)}`;
+      
+      const response = await fetch(url, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || '파일 삭제에 실패했습니다.');
+      }
+
+      // 파일 목록에서 삭제된 파일 그룹 제거
+      setFiles(prevFiles => {
+        const groupKey = getGroupKey(fileToDelete);
+        return prevFiles.filter(fileGroup => getGroupKey(fileGroup) !== groupKey);
+      });
+
+      // 삭제된 파일의 레코드가 선택되어 있으면 선택 해제
+      if (selectedRecord && fileToDelete.records.some(r => r.id === selectedRecord.id)) {
+        setSelectedRecord(null);
+        setIsEditing(false);
+      }
+      
+      setFileToDelete(null);
+      
+      // 히스토리 새로고침
+      await fetchHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '파일 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setIsDeletingFile(false);
     }
   };
 
@@ -486,6 +549,36 @@ export default function MonitorPage() {
         ) : (
           // 파일 목록 모드
           <div className="space-y-4">
+            {fileToDelete && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-red-800 mb-4">
+                  정말로 <strong>"{fileToDelete.filename}"</strong> 파일의 모든 기록({fileToDelete.total_records}개)을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDeleteFile}
+                    disabled={isDeletingFile}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isDeletingFile ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+                        삭제 중...
+                      </>
+                    ) : (
+                      '삭제'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setFileToDelete(null)}
+                    disabled={isDeletingFile}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
             {files.map((fileGroup) => {
               const groupKey = getGroupKey(fileGroup);
               const isExpanded = expandedFiles.has(groupKey);
@@ -501,25 +594,37 @@ export default function MonitorPage() {
                 className="border border-gray-200 rounded-lg overflow-hidden"
               >
                 {/* 파일 헤더 */}
-                <button
-                  onClick={() => toggleFile(fileGroup)}
-                  className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronDown className="w-5 h-5 text-gray-600" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-gray-600" />
-                    )}
-                    <FileText className="w-5 h-5 text-gray-600" />
-                    <div className="text-left">
-                      <div className="font-semibold text-gray-900">{displayName}</div>
-                      <div className="text-sm text-gray-500">
-                        {fileGroup.total_records}개 기록 · {formatDate(fileGroup.latest_timestamp)}
+                <div className="flex items-center bg-gray-50 hover:bg-gray-100 transition-colors">
+                  <button
+                    onClick={() => toggleFile(fileGroup)}
+                    className="flex-1 flex items-center justify-between p-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isExpanded ? (
+                        <ChevronDown className="w-5 h-5 text-gray-600" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-gray-600" />
+                      )}
+                      <FileText className="w-5 h-5 text-gray-600" />
+                      <div className="text-left">
+                        <div className="font-semibold text-gray-900">{displayName}</div>
+                        <div className="text-sm text-gray-500">
+                          {fileGroup.total_records}개 기록 · {formatDate(fileGroup.latest_timestamp)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFileToDelete(fileGroup);
+                    }}
+                    className="p-4 text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors"
+                    title="파일 그룹 삭제"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
                 
                 {/* 파일 내 기록 목록 */}
                 {isExpanded && (

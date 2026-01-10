@@ -9,8 +9,14 @@
 # Linux의 경우:
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# 모델 다운로드
-ollama pull llama3.2-vision
+# Ollama 서버 시작 (백그라운드)
+ollama serve
+
+# qwen2.5vl:7b 모델 다운로드 (OCR에 사용)
+ollama pull qwen2.5vl:7b
+
+# 모델 확인
+ollama list
 ```
 
 ### 2. Backend 실행
@@ -38,8 +44,12 @@ npm run dev
 ## 문제 해결
 
 ### Ollama 연결 오류
-- Ollama가 실행 중인지 확인: `ollama list`
-- Ollama 서비스 시작: `ollama serve` (별도 터미널)
+- Ollama가 설치되어 있는지 확인: `which ollama`
+- Ollama 서버가 실행 중인지 확인: `ollama list` 또는 `pgrep -f "ollama serve"`
+- Ollama 서비스 시작: `ollama serve` (백그라운드로 실행되면 자동 시작)
+- qwen2.5vl:7b 모델이 설치되어 있는지 확인: `ollama list | grep qwen2.5vl`
+- 모델이 없으면 다운로드: `ollama pull qwen2.5vl:7b`
+- Python 패키지 확인: `pip install -r backend/requirements.txt` (ollama, python-multipart 포함)
 
 ### PDF 렌더링 오류
 - 브라우저 콘솔에서 PDF.js worker 오류 확인

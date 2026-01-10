@@ -1,13 +1,33 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+import sqlite3
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./ocr_history.db"
 
+# SQLite 연결 설정 개선
+connect_args = {
+    "check_same_thread": False,
+    "timeout": 20.0,  # 타임아웃 설정 (20초)
+}
+
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args=connect_args,
+    pool_pre_ping=True,  # 연결 상태 확인
+    pool_recycle=3600,  # 1시간마다 연결 재사용
 )
+
+# SQLite WAL 모드 활성화 (동시성 개선)
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_conn, connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=20000")  # 20초 대기
+    cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

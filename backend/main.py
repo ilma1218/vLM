@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
@@ -291,6 +291,10 @@ async def ocr_image(
         
         # 이미지 검증 및 디버깅
         try:
+            # 파일이 비어있지 않은지 확인
+            if len(file_bytes) == 0:
+                raise HTTPException(status_code=400, detail="Empty file received")
+            
             img = Image.open(io.BytesIO(file_bytes))
             # 이미지가 제대로 로드되었는지 확인
             img.verify()
@@ -298,7 +302,8 @@ async def ocr_image(
             print(f"Received image: {img.size[0]}x{img.size[1]} pixels, format: {img.format}")
         except Exception as img_error:
             print(f"Image validation error: {img_error}")
-            # 이미지 검증 실패해도 계속 진행 (Ollama가 처리할 수 있음)
+            # 이미지 검증 실패 시 더 명확한 오류 메시지 제공
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {str(img_error)}")
         
         # 이미지를 base64로 인코딩
         image_base64 = base64.b64encode(file_bytes).decode('utf-8')
@@ -490,6 +495,9 @@ async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
                 for record in records
             ]
     except Exception as e:
+        import traceback
+        error_detail = f"Failed to fetch history: {str(e)}\n{traceback.format_exc()}"
+        print(f"History API Error: {error_detail}")  # 서버 로그에 출력
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
 
 
@@ -539,6 +547,69 @@ async def delete_record(record_id: int, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete record: {str(e)}")
+
+
+@app.delete("/history/file/{filename}")
+async def delete_file_records(
+    filename: str, 
+    first_timestamp: str = Query(None, description="그룹의 첫 타임스탬프 (ISO 형식)"),
+    db: Session = Depends(get_db)
+):
+    """
+    특정 파일의 모든 OCR 기록을 삭제합니다.
+    first_timestamp가 제공되면 해당 타임스탬프를 가진 그룹만 삭제합니다.
+    """
+    try:
+        from datetime import datetime
+        
+        # 파일명으로 필터링
+        query = db.query(OCRRecord).filter(OCRRecord.filename == filename)
+        
+        # first_timestamp가 제공되면 해당 그룹만 삭제
+        if first_timestamp:
+            try:
+                # ISO 형식의 타임스탬프를 datetime 객체로 변환
+                group_datetime = datetime.fromisoformat(first_timestamp.replace('Z', '+00:00'))
+                # UTC로 변환 (필요한 경우)
+                if group_datetime.tzinfo:
+                    group_datetime = group_datetime.astimezone(datetime.utcnow().tzinfo).replace(tzinfo=None)
+                
+                # 10분 범위 내의 레코드 찾기 (그룹 임계값과 동일)
+                from datetime import timedelta
+                threshold = timedelta(minutes=10)
+                query = query.filter(
+                    OCRRecord.timestamp >= group_datetime - threshold,
+                    OCRRecord.timestamp <= group_datetime + threshold
+                )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid timestamp format: {str(e)}")
+        
+        records = query.all()
+        
+        if not records:
+            raise HTTPException(status_code=404, detail="No records found for this file")
+        
+        # 레코드 ID 수집
+        deleted_ids = [record.id for record in records]
+        deleted_count = len(deleted_ids)
+        
+        # 모든 레코드 삭제
+        for record in records:
+            db.delete(record)
+        
+        db.commit()
+        
+        return {
+            "message": f"File records deleted successfully",
+            "filename": filename,
+            "deleted_count": deleted_count,
+            "deleted_ids": deleted_ids
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete file records: {str(e)}")
 
 
 @app.get("/")
