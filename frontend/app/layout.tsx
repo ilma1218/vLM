@@ -6,7 +6,7 @@ import Navbar from '@/components/Navbar'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'IO-VISION OCR - Region-Specific OCR Service',
+  title: 'IO-N;LINGO OCR - Region-Specific OCR Service',
   description: 'Upload images or PDFs and extract text from specific regions',
 }
 

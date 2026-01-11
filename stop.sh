@@ -61,31 +61,31 @@ fi
 # (일반적으로 Ollama는 계속 실행하는 것을 권장)
 echo ""
 if command -v ollama &> /dev/null || pgrep -f "ollama serve" > /dev/null; then
-    read -p "Ollama 서버도 종료하시겠습니까? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        if [ -f logs/ollama.pid ]; then
+read -p "Ollama 서버도 종료하시겠습니까? (y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [ -f logs/ollama.pid ]; then
             OLLAMA_PID=$(cat logs/ollama.pid | tr -d '[:space:]')
             if [ -n "$OLLAMA_PID" ] && ps -p $OLLAMA_PID > /dev/null 2>&1; then
-                echo "Ollama 서버 종료 중... (PID: $OLLAMA_PID)"
-                kill $OLLAMA_PID 2>/dev/null || pkill -f "ollama serve"
-                rm logs/ollama.pid
-                echo "Ollama 서버가 종료되었습니다."
-            else
-                echo "Ollama 서버가 실행 중이 아닙니다."
-                rm -f logs/ollama.pid
-            fi
+            echo "Ollama 서버 종료 중... (PID: $OLLAMA_PID)"
+            kill $OLLAMA_PID 2>/dev/null || pkill -f "ollama serve"
+            rm logs/ollama.pid
+            echo "Ollama 서버가 종료되었습니다."
         else
-            if pgrep -f "ollama serve" > /dev/null; then
-                echo "Ollama 서버 종료 중..."
-                pkill -f "ollama serve"
-                echo "Ollama 서버가 종료되었습니다."
-            else
-                echo "Ollama 서버가 실행 중이 아닙니다."
-            fi
+            echo "Ollama 서버가 실행 중이 아닙니다."
+                rm -f logs/ollama.pid
         fi
     else
-        echo "Ollama 서버는 계속 실행됩니다."
+        if pgrep -f "ollama serve" > /dev/null; then
+            echo "Ollama 서버 종료 중..."
+            pkill -f "ollama serve"
+            echo "Ollama 서버가 종료되었습니다."
+        else
+            echo "Ollama 서버가 실행 중이 아닙니다."
+        fi
+    fi
+else
+    echo "Ollama 서버는 계속 실행됩니다."
     fi
 else
     echo "Ollama 서버가 실행 중이 아닙니다."

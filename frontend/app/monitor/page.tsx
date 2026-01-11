@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X } from 'lucide-react';
+import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -33,6 +33,11 @@ export default function MonitorPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileGroup | null>(null);
   const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<number>>(new Set());
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [isDeletingMultiple, setIsDeletingMultiple] = useState(false);
+  const [selectedFileGroups, setSelectedFileGroups] = useState<Set<string>>(new Set());
+  const [isDeletingMultipleFiles, setIsDeletingMultipleFiles] = useState(false);
 
   const fetchHistory = async () => {
     setIsLoading(true);
@@ -41,12 +46,18 @@ export default function MonitorPage() {
       const url = `${BACKEND_URL}/history?grouped=true`;
       console.log('Fetching history from:', url);
       
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
+      
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -54,9 +65,23 @@ export default function MonitorPage() {
         throw new Error(`히스토리를 불러오는데 실패했습니다. (${response.status}: ${response.statusText})`);
       }
       
+      // JSON 파싱 전에 응답 크기 확인
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('서버가 유효하지 않은 응답 형식을 반환했습니다.');
+      }
+      
       const data = await response.json();
-      console.log('History data received:', data);
+      console.log('History data received:', data?.length || 0, 'files');
+      
+      // 데이터 유효성 검사
+      if (!Array.isArray(data)) {
+        console.error('Invalid data format:', data);
+        throw new Error('서버가 유효하지 않은 데이터 형식을 반환했습니다.');
+      }
+      
       setFiles(data);
+      
       // 첫 번째 파일을 자동으로 확장
       if (data.length > 0 && expandedFiles.size === 0) {
         const firstGroupKey = data[0].first_timestamp 
@@ -66,10 +91,16 @@ export default function MonitorPage() {
       }
     } catch (err) {
       console.error('Fetch error:', err);
-      if (err instanceof TypeError && err.message.includes('fetch')) {
-        setError(`백엔드 서버에 연결할 수 없습니다. (${BACKEND_URL})`);
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          setError('요청 시간이 초과되었습니다. 다시 시도해주세요.');
+        } else if (err instanceof TypeError && err.message.includes('fetch')) {
+          setError(`백엔드 서버에 연결할 수 없습니다. (${BACKEND_URL})`);
+        } else {
+          setError(err.message || '알 수 없는 오류가 발생했습니다.');
+        }
       } else {
-        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+        setError('알 수 없는 오류가 발생했습니다.');
       }
     } finally {
       setIsLoading(false);
@@ -220,9 +251,191 @@ export default function MonitorPage() {
     }
   };
 
+  const toggleMultiSelectMode = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    if (isMultiSelectMode) {
+      setSelectedRecordIds(new Set());
+    }
+  };
+
+  const toggleRecordSelection = (recordId: number) => {
+    const newSelected = new Set(selectedRecordIds);
+    if (newSelected.has(recordId)) {
+      newSelected.delete(recordId);
+    } else {
+      newSelected.add(recordId);
+    }
+    setSelectedRecordIds(newSelected);
+  };
+
+  const selectAllRecords = () => {
+    const allRecordIds = new Set<number>();
+    files.forEach(fileGroup => {
+      fileGroup.records.forEach(record => {
+        allRecordIds.add(record.id);
+      });
+    });
+    setSelectedRecordIds(allRecordIds);
+  };
+
+  const clearSelection = () => {
+    setSelectedRecordIds(new Set());
+  };
+
+  const toggleFileGroupSelection = (groupKey: string) => {
+    const newSelected = new Set(selectedFileGroups);
+    if (newSelected.has(groupKey)) {
+      newSelected.delete(groupKey);
+    } else {
+      newSelected.add(groupKey);
+    }
+    setSelectedFileGroups(newSelected);
+  };
+
+  const selectAllFileGroups = () => {
+    const allGroupKeys = new Set<string>();
+    files.forEach(fileGroup => {
+      allGroupKeys.add(getGroupKey(fileGroup));
+    });
+    setSelectedFileGroups(allGroupKeys);
+  };
+
+  const clearFileGroupSelection = () => {
+    setSelectedFileGroups(new Set());
+  };
+
+  const handleDeleteMultipleFiles = async () => {
+    if (selectedFileGroups.size === 0) return;
+    
+    setIsDeletingMultipleFiles(true);
+    setError(null);
+    try {
+      const groupKeysToDelete = Array.from(selectedFileGroups);
+      const filesToDelete = files.filter(fileGroup => 
+        groupKeysToDelete.includes(getGroupKey(fileGroup))
+      );
+      
+      // 각 파일 그룹을 순차적으로 삭제
+      const deletedGroupKeys: string[] = [];
+      const errors: string[] = [];
+      
+      for (const fileGroup of filesToDelete) {
+        try {
+          const url = fileGroup.first_timestamp
+            ? `${BACKEND_URL}/history/file/${encodeURIComponent(fileGroup.filename)}?first_timestamp=${encodeURIComponent(fileGroup.first_timestamp)}`
+            : `${BACKEND_URL}/history/file/${encodeURIComponent(fileGroup.filename)}`;
+          
+          const response = await fetch(url, {
+            method: 'DELETE',
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(errorData.detail || `파일 "${fileGroup.filename}" 삭제 실패`);
+          }
+          
+          deletedGroupKeys.push(getGroupKey(fileGroup));
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : `파일 "${fileGroup.filename}" 삭제 중 오류`);
+        }
+      }
+      
+      if (errors.length > 0) {
+        setError(`일부 파일 삭제 실패: ${errors.join(', ')}`);
+      }
+      
+      // 삭제된 파일 그룹이 선택된 레코드를 포함하는지 확인
+      const deletedGroupKeysSet = new Set(deletedGroupKeys);
+      const deletedFileGroups = filesToDelete.filter(fg => 
+        deletedGroupKeysSet.has(getGroupKey(fg))
+      );
+      
+      const deletedRecordIds = new Set<number>();
+      deletedFileGroups.forEach(fileGroup => {
+        fileGroup.records.forEach(record => {
+          deletedRecordIds.add(record.id);
+        });
+      });
+      
+      // 삭제된 파일의 레코드가 선택되어 있으면 선택 해제
+      if (selectedRecord && deletedRecordIds.has(selectedRecord.id)) {
+        setSelectedRecord(null);
+        setIsEditing(false);
+      }
+      
+      // 선택된 레코드 ID에서도 삭제된 레코드 제거
+      const newSelectedRecordIds = new Set(selectedRecordIds);
+      deletedRecordIds.forEach(id => newSelectedRecordIds.delete(id));
+      setSelectedRecordIds(newSelectedRecordIds);
+      
+      // 선택 초기화
+      setSelectedFileGroups(new Set());
+      
+      // 히스토리 새로고침
+      await fetchHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '선택한 파일 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setIsDeletingMultipleFiles(false);
+    }
+  };
+
+  const handleDeleteMultiple = async () => {
+    if (selectedRecordIds.size === 0) return;
+    
+    setIsDeletingMultiple(true);
+    setError(null);
+    try {
+      const response = await fetch(`${BACKEND_URL}/history/delete-multiple`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(Array.from(selectedRecordIds)),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || '선택한 레코드 삭제에 실패했습니다.');
+      }
+
+      const result = await response.json();
+      
+      // 선택된 레코드 중 삭제된 것 제외
+      const deletedIds = new Set(result.deleted_ids || []);
+      
+      // 파일 목록에서 삭제된 레코드 제거
+      setFiles(prevFiles => 
+        prevFiles.map(fileGroup => ({
+          ...fileGroup,
+          records: fileGroup.records.filter(record => !deletedIds.has(record.id)),
+          total_records: fileGroup.records.filter(record => !deletedIds.has(record.id)).length
+        })).filter(fileGroup => fileGroup.total_records > 0)
+      );
+
+      // 삭제된 레코드가 선택되어 있으면 선택 해제
+      if (selectedRecord && deletedIds.has(selectedRecord.id)) {
+        setSelectedRecord(null);
+        setIsEditing(false);
+      }
+
+      // 선택 초기화 및 다중 선택 모드 해제
+      setSelectedRecordIds(new Set());
+      setIsMultiSelectMode(false);
+      
+      // 히스토리 새로고침
+      await fetchHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '선택한 레코드 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setIsDeletingMultiple(false);
+    }
+  };
+
   useEffect(() => {
     // 초기 로드 시에만 데이터 가져오기
     fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 모든 레코드를 시간순으로 정렬된 리스트로 변환
@@ -309,14 +522,67 @@ export default function MonitorPage() {
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">OCR History</h1>
-          <button
-            onClick={fetchHistory}
-            disabled={isLoading}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            새로고침
-          </button>
+          <div className="flex items-center gap-2">
+            {isMultiSelectMode && selectedRecordIds.size > 0 && (
+              <div className="flex items-center gap-2 mr-2">
+                <span className="text-sm text-gray-700">
+                  {selectedRecordIds.size}개 선택됨
+                </span>
+                <button
+                  onClick={handleDeleteMultiple}
+                  disabled={isDeletingMultiple}
+                  className="inline-flex items-center px-3 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+                >
+                  {isDeletingMultiple ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      삭제 중...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      선택 삭제
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={clearSelection}
+                  disabled={isDeletingMultiple}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  선택 해제
+                </button>
+              </div>
+            )}
+            <button
+              onClick={toggleMultiSelectMode}
+              className={`inline-flex items-center px-4 py-2 border rounded-md shadow-sm text-sm font-medium ${
+                isMultiSelectMode
+                  ? 'border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100'
+                  : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+              }`}
+            >
+              {isMultiSelectMode ? (
+                <>
+                  <CheckSquare className="w-4 h-4 mr-2" />
+                  다중 선택 해제
+                </>
+              ) : (
+                <>
+                  <Square className="w-4 h-4 mr-2" />
+                  다중 선택
+                </>
+              )}
+            </button>
+            <button
+              onClick={fetchHistory}
+              disabled={isLoading}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              새로고침
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -549,32 +815,134 @@ export default function MonitorPage() {
         ) : (
           // 파일 목록 모드
           <div className="space-y-4">
-            {fileToDelete && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 mb-4">
-                  정말로 <strong>"{fileToDelete.filename}"</strong> 파일의 모든 기록({fileToDelete.total_records}개)을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
-                </p>
-                <div className="flex gap-2">
+            {selectedFileGroups.size > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-green-800 font-medium">
+                      파일 선택: {selectedFileGroups.size}개 파일 선택됨
+                    </span>
+                    <button
+                      onClick={selectAllFileGroups}
+                      className="text-sm text-green-600 hover:text-green-800 underline"
+                    >
+                      전체 선택
+                    </button>
+                    <button
+                      onClick={clearFileGroupSelection}
+                      className="text-sm text-gray-600 hover:text-gray-800 underline"
+                    >
+                      선택 해제
+                    </button>
+                  </div>
                   <button
-                    onClick={handleDeleteFile}
-                    disabled={isDeletingFile}
-                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleDeleteMultipleFiles}
+                    disabled={isDeletingMultipleFiles}
+                    className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
                   >
-                    {isDeletingFile ? (
+                    {isDeletingMultipleFiles ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                         삭제 중...
                       </>
                     ) : (
-                      '삭제'
+                      <>
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        선택한 {selectedFileGroups.size}개 파일 삭제
+                      </>
                     )}
                   </button>
+                </div>
+              </div>
+            )}
+            {isMultiSelectMode && files.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-blue-800">
+                      다중 선택 모드: {selectedRecordIds.size}개 선택됨
+                    </span>
+                    <button
+                      onClick={selectAllRecords}
+                      className="text-sm text-blue-600 hover:text-blue-800 underline"
+                    >
+                      전체 선택
+                    </button>
+                    <button
+                      onClick={clearSelection}
+                      className="text-sm text-gray-600 hover:text-gray-800 underline"
+                    >
+                      선택 해제
+                    </button>
+                  </div>
+                  {selectedRecordIds.size > 0 && (
+                    <button
+                      onClick={handleDeleteMultiple}
+                      disabled={isDeletingMultiple}
+                      className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                    >
+                      {isDeletingMultiple ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          삭제 중...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          선택한 {selectedRecordIds.size}개 삭제
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {fileToDelete && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-6 mb-4 shadow-sm">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="flex-shrink-0 mt-0.5">
+                    <Trash2 className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-red-900 mb-2">파일 삭제 확인</h3>
+                    <p className="text-sm text-red-800 mb-2">
+                      다음 파일의 모든 기록을 삭제하시겠습니까?
+                    </p>
+                    <div className="bg-white rounded-md p-3 mb-3 border border-red-200">
+                      <div className="font-medium text-gray-900">{fileToDelete.filename}</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        총 <strong className="text-red-600">{fileToDelete.total_records}개</strong>의 기록이 삭제됩니다
+                      </div>
+                    </div>
+                    <p className="text-xs text-red-700 font-medium">
+                      ⚠️ 이 작업은 되돌릴 수 없습니다.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
                   <button
                     onClick={() => setFileToDelete(null)}
                     disabled={isDeletingFile}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
+                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                   >
                     취소
+                  </button>
+                  <button
+                    onClick={handleDeleteFile}
+                    disabled={isDeletingFile}
+                    className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  >
+                    {isDeletingFile ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        삭제 중...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        삭제
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -582,6 +950,7 @@ export default function MonitorPage() {
             {files.map((fileGroup) => {
               const groupKey = getGroupKey(fileGroup);
               const isExpanded = expandedFiles.has(groupKey);
+              const isFileSelected = selectedFileGroups.has(groupKey);
               // 같은 파일명이 여러 개인지 확인 (같은 파일명의 다른 그룹이 있는지)
               const sameFilenameCount = files.filter(f => f.filename === fileGroup.filename).length;
               const displayName = sameFilenameCount > 1 && fileGroup.first_timestamp
@@ -591,10 +960,28 @@ export default function MonitorPage() {
               return (
               <div
                 key={groupKey}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className={`border rounded-lg overflow-hidden ${
+                  isFileSelected ? 'border-green-500 bg-green-50' : 'border-gray-200'
+                }`}
               >
                 {/* 파일 헤더 */}
-                <div className="flex items-center bg-gray-50 hover:bg-gray-100 transition-colors">
+                <div className={`flex items-center transition-colors group ${
+                  isFileSelected ? 'bg-green-50 hover:bg-green-100' : 'bg-gray-50 hover:bg-gray-100'
+                }`}>
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFileGroupSelection(groupKey);
+                    }}
+                    className="p-3 cursor-pointer"
+                    title={isFileSelected ? '선택 해제' : '선택'}
+                  >
+                    {isFileSelected ? (
+                      <CheckSquare className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <Square className="w-5 h-5 text-gray-400" />
+                    )}
+                  </div>
                   <button
                     onClick={() => toggleFile(fileGroup)}
                     className="flex-1 flex items-center justify-between p-4"
@@ -614,47 +1001,126 @@ export default function MonitorPage() {
                       </div>
                     </div>
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFileToDelete(fileGroup);
-                    }}
-                    className="p-4 text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors"
-                    title="파일 그룹 삭제"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center gap-2 pr-4">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFileToDelete(fileGroup);
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                      title={`${displayName} 파일 삭제 (${fileGroup.total_records}개 기록)`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">파일 삭제</span>
+                    </button>
+                  </div>
                 </div>
                 
                 {/* 파일 내 기록 목록 */}
                 {isExpanded && (
                   <div className="p-4 bg-white">
-                    <div className="space-y-3">
-                      {fileGroup.records.map((record) => (
-                        <div
-                          key={record.id}
-                          onClick={() => setSelectedRecord(record)}
-                          className="p-3 border border-gray-200 rounded-md hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
+                    {isMultiSelectMode && fileGroup.records.length > 0 && (
+                      <div className="mb-3 pb-3 border-b border-gray-200">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const allIdsInGroup = new Set(fileGroup.records.map(r => r.id));
+                            const allSelected = fileGroup.records.length > 0 && 
+                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === fileGroup.records.length;
+                            
+                            if (allSelected) {
+                              // 모두 선택되어 있으면 이 그룹의 모든 항목 선택 해제
+                              const newSelected = new Set(selectedRecordIds);
+                              fileGroup.records.forEach(r => newSelected.delete(r.id));
+                              setSelectedRecordIds(newSelected);
+                            } else {
+                              // 일부만 선택되어 있으면 모두 선택
+                              const newSelected = new Set(selectedRecordIds);
+                              fileGroup.records.forEach(r => newSelected.add(r.id));
+                              setSelectedRecordIds(newSelected);
+                            }
+                          }}
+                          className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-2"
                         >
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex items-center gap-2">
-                              {record.page_number && (
-                                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                                  페이지 {record.page_number}
-                                </span>
+                          {(() => {
+                            const allIdsInGroup = new Set(fileGroup.records.map(r => r.id));
+                            const allSelected = fileGroup.records.length > 0 && 
+                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === fileGroup.records.length;
+                            return allSelected ? (
+                              <>
+                                <CheckSquare className="w-4 h-4" />
+                                전체 선택 해제
+                              </>
+                            ) : (
+                              <>
+                                <Square className="w-4 h-4" />
+                                전체 선택
+                              </>
+                            );
+                          })()}
+                        </button>
+                      </div>
+                    )}
+                    <div className="space-y-3">
+                      {fileGroup.records.map((record) => {
+                        const isSelected = selectedRecordIds.has(record.id);
+                        return (
+                          <div
+                            key={record.id}
+                            onClick={() => {
+                              if (isMultiSelectMode) {
+                                toggleRecordSelection(record.id);
+                              } else {
+                                setSelectedRecord(record);
+                              }
+                            }}
+                            className={`p-3 border rounded-md transition-colors ${
+                              isMultiSelectMode
+                                ? isSelected
+                                  ? 'border-blue-500 bg-blue-100 hover:bg-blue-200 cursor-pointer'
+                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer'
+                                : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {isMultiSelectMode && (
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleRecordSelection(record.id);
+                                  }}
+                                  className="pt-0.5 cursor-pointer"
+                                >
+                                  {isSelected ? (
+                                    <CheckSquare className="w-5 h-5 text-blue-600" />
+                                  ) : (
+                                    <Square className="w-5 h-5 text-gray-400" />
+                                  )}
+                                </div>
                               )}
-                              <span className="text-xs text-gray-500">
-                                {formatDate(record.timestamp)}
-                              </span>
+                              <div className="flex-1">
+                                <div className="flex justify-between items-start mb-2">
+                                  <div className="flex items-center gap-2">
+                                    {record.page_number && (
+                                      <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                        페이지 {record.page_number}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-500">
+                                      {formatDate(record.timestamp)}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-gray-400">ID: {record.id}</span>
+                                </div>
+                                <div className="text-sm text-gray-700 line-clamp-2">
+                                  {record.extracted_text.substring(0, 100)}
+                                  {record.extracted_text.length > 100 ? '...' : ''}
+                                </div>
+                              </div>
                             </div>
-                            <span className="text-xs text-gray-400">ID: {record.id}</span>
                           </div>
-                          <div className="text-sm text-gray-700 line-clamp-2">
-                            {record.extracted_text.substring(0, 100)}
-                            {record.extracted_text.length > 100 ? '...' : ''}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

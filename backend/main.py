@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
@@ -6,6 +6,7 @@ import ollama
 import base64
 import re
 import io
+import json
 from PIL import Image
 from database import init_db, get_db, OCRRecord
 from datetime import datetime
@@ -268,6 +269,53 @@ def clean_ocr_response(text: str) -> str:
     return text
 
 
+def extract_json_from_text(text: str) -> str:
+    """
+    텍스트에서 JSON 블록을 추출하고 포맷팅합니다.
+    JSON을 찾지 못하면 원본 텍스트를 반환합니다.
+    """
+    # 1. JSON 코드 블록 찾기 (```json ... ``` 또는 ``` ... ```)
+    json_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+    match = re.search(json_block_pattern, text, re.DOTALL)
+    if match:
+        json_str = match.group(1).strip()
+    else:
+        # 2. ``` 없이 첫 번째 { 부터 마지막 } 까지 찾기 (더 견고한 방법)
+        start_idx = text.find('{')
+        if start_idx == -1:
+            # JSON 객체 시작 기호가 없음
+            return text
+        
+        # { 부터 시작해서 중괄호 매칭하여 JSON 객체 찾기
+        brace_count = 0
+        end_idx = start_idx
+        for i in range(start_idx, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    end_idx = i + 1
+                    break
+        
+        if brace_count != 0:
+            # 중괄호가 매칭되지 않음
+            return text
+        
+        json_str = text[start_idx:end_idx].strip()
+    
+    try:
+        # JSON 파싱 시도
+        json_obj = json.loads(json_str)
+        # JSON을 포맷팅된 문자열로 변환 (들여쓰기 포함)
+        formatted_json = json.dumps(json_obj, ensure_ascii=False, indent=2)
+        return formatted_json
+    except json.JSONDecodeError as e:
+        # JSON 파싱 실패 - 원본 텍스트 반환
+        print(f"JSON parsing failed: {e}")
+        return text
+
+
 @app.post("/ocr")
 async def ocr_image(
     file: UploadFile = File(...),
@@ -372,7 +420,20 @@ async def ocr_image(
         raw_text = re.sub(r'…\s*$', '', raw_text)
         raw_text = raw_text.rstrip('…').rstrip('...').rstrip('..').rstrip('.')
         
-        extracted_text = clean_ocr_response(raw_text)
+        # JSON 형식인지 확인하고 포맷팅
+        # 사용자 지정 프롬프트가 있으면 JSON 추출 시도
+        if custom_prompt and custom_prompt.strip():
+            # JSON 추출 시도
+            json_formatted = extract_json_from_text(raw_text)
+            if json_formatted != raw_text:
+                # JSON이 성공적으로 추출됨
+                extracted_text = json_formatted
+            else:
+                # JSON이 아니면 기본 정리 로직 사용
+                extracted_text = clean_ocr_response(raw_text)
+        else:
+            # 기본 프롬프트 사용 시 기본 정리 로직
+            extracted_text = clean_ocr_response(raw_text)
         
         # 크롭된 이미지를 base64로 인코딩하여 저장
         cropped_image_base64 = base64.b64encode(file_bytes).decode('utf-8')
@@ -547,6 +608,47 @@ async def delete_record(record_id: int, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete record: {str(e)}")
+
+
+@app.post("/history/delete-multiple")
+async def delete_multiple_records(
+    record_ids: List[int] = Body(..., description="삭제할 레코드 ID 목록"),
+    db: Session = Depends(get_db)
+):
+    """
+    여러 OCR 기록을 한 번에 삭제합니다.
+    """
+    try:
+        if not record_ids or len(record_ids) == 0:
+            raise HTTPException(status_code=400, detail="No record IDs provided")
+        
+        # 존재하는 레코드만 조회
+        records = db.query(OCRRecord).filter(OCRRecord.id.in_(record_ids)).all()
+        
+        if not records:
+            raise HTTPException(status_code=404, detail="No records found")
+        
+        # 삭제될 ID 수집
+        deleted_ids = [record.id for record in records]
+        not_found_ids = [rid for rid in record_ids if rid not in deleted_ids]
+        
+        # 모든 레코드 삭제
+        for record in records:
+            db.delete(record)
+        
+        db.commit()
+        
+        return {
+            "message": f"{len(deleted_ids)} records deleted successfully",
+            "deleted_ids": deleted_ids,
+            "deleted_count": len(deleted_ids),
+            "not_found_ids": not_found_ids if not_found_ids else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete records: {str(e)}")
 
 
 @app.delete("/history/file/{filename}")

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import ReactCrop, { Crop, PixelCrop, makeAspectCrop, centerCrop } from 'react-image-crop';
+import ReactCrop, { Crop, PixelCrop, PercentCrop, makeAspectCrop, centerCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { renderPdfFirstPageToCanvas, renderPdfAllPagesToCanvases, getPdfPageCount } from '@/utils/pdfUtils';
 import { cropImageToBlob, CropArea } from '@/utils/cropUtils';
@@ -43,6 +43,8 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrResult, setOcrResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [processedAreasCount, setProcessedAreasCount] = useState<number>(0);
+  const [processedPagesSet, setProcessedPagesSet] = useState<Set<number>>(new Set());
   const [croppedPreviews, setCroppedPreviews] = useState<Map<string, string>>(new Map());
   const [isPdf, setIsPdf] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -301,23 +303,23 @@ export default function Home() {
   }, [cropAreasByPage, isPdf, currentPage, nextCropId]);
   
   // 현재 크롭 완료 핸들러
-  const onCropComplete = useCallback((crop: PixelCrop) => {
+  const onCropComplete = useCallback((crop: PixelCrop, percentageCrop: PercentCrop) => {
     // 크롭이 완료되면 즉시 currentCompletedCrop 설정
-    // 핵심: 픽셀 값을 비율(0.0 ~ 1.0)로 변환하여 저장 (제미나이 제안 반영)
+    // ReactCrop의 onComplete는 (pixelCrop, percentageCrop) 두 값을 제공
+    // percentageCrop은 이미 % 단위 (0~100)로 계산되어 있으므로 이를 직접 사용
     if (crop && crop.width > 0 && crop.height > 0) {
     if (imgRef.current) {
-        // 현재 화면에 보이는 이미지 크기 (clientWidth/clientHeight 사용)
+        // percentageCrop을 0.0~1.0 범위의 비율로 변환
+        const cropRatio = {
+          x: percentageCrop.x / 100,
+          y: percentageCrop.y / 100,
+          width: percentageCrop.width / 100,
+          height: percentageCrop.height / 100,
+        };
+        
+        // 현재 화면에 보이는 이미지 크기 (로깅 및 참조용)
         const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
         const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
-        
-        // 픽셀 -> 비율 변환 (0.0 ~ 1.0)
-        // 예: 화면 너비 1000px에서 x가 100px이면 -> 0.1 (10%)
-        const cropRatio = {
-          x: crop.x / displayedWidth,
-          y: crop.y / displayedHeight,
-          width: crop.width / displayedWidth,
-          height: crop.height / displayedHeight,
-        };
         
         // 비율을 포함한 확장된 crop 객체 저장
         setCurrentCompletedCrop({
@@ -825,6 +827,7 @@ export default function Home() {
     try {
       const allResults: string[] = [];
       const newPreviews = new Map<string, string>();
+      const processedPages = new Set<number>(); // 실제 처리된 페이지 번호 추적
 
       // 각 크롭 영역에 대해 OCR 실행
       for (let areaIndex = 0; areaIndex < allCropAreas.length; areaIndex++) {
@@ -892,6 +895,7 @@ export default function Home() {
           const data = await response.json();
           if (data.extracted_text && data.extracted_text.trim()) {
             allResults.push(`[페이지 ${area.pageNumber} - 영역 ${areaIndex + 1}]\n${data.extracted_text}`);
+            processedPages.add(area.pageNumber); // 실제 처리된 페이지 번호 추가
           }
         } else {
           // 이미지 파일 처리
@@ -965,6 +969,8 @@ export default function Home() {
         const data = await response.json();
           if (data.extracted_text && data.extracted_text.trim()) {
             allResults.push(`[영역 ${areaIndex + 1}]\n${data.extracted_text}`);
+            // 이미지 파일인 경우 페이지 1로 간주
+            processedPages.add(1);
           }
         }
       }
@@ -972,7 +978,9 @@ export default function Home() {
       // 모든 영역의 결과를 합침
       setOcrResult(allResults.join('\n\n---\n\n'));
       setCroppedPreviews(newPreviews);
-      setProcessingProgress(`완료: ${allCropAreas.length}개 영역 처리됨`);
+      setProcessedAreasCount(allResults.length); // 실제 처리된 영역 수 저장
+      setProcessedPagesSet(processedPages); // 실제 처리된 페이지 Set 저장
+      setProcessingProgress(`완료: ${allResults.length}개 영역 처리됨`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'OCR 처리 중 오류가 발생했습니다.');
     } finally {
@@ -995,6 +1003,8 @@ export default function Home() {
     setIsPdf(false);
     setPdfFile(null);
     setProcessingProgress('');
+    setProcessedAreasCount(0);
+    setProcessedPagesSet(new Set());
     setCurrentPage(1);
     setTotalPages(1);
     setPdfCanvases([]);
@@ -1121,13 +1131,20 @@ export default function Home() {
                     ref={imgRef}
                     src={imageSrc}
                     alt="Uploaded"
-                    onLoad={onImageLoad}
                     className="rounded-lg shadow-lg"
+                    width={isPdf && pdfCanvases[currentPage - 1] ? pdfCanvases[currentPage - 1].width : undefined}
+                    height={isPdf && pdfCanvases[currentPage - 1] ? pdfCanvases[currentPage - 1].height : undefined}
                     style={{ 
                       display: 'block',
-                      width: 'auto',
-                      height: 'auto',
-                      // 원본 크기로 고정 (반응형 크기 조정 없음)
+                      ...(isPdf ? {
+                        // PDF의 경우 원본 크기 그대로 사용 (확대/축소 없음)
+                        width: pdfCanvases[currentPage - 1]?.width,
+                        height: pdfCanvases[currentPage - 1]?.height,
+                      } : {
+                        // 이미지의 경우 자동 크기
+                        width: 'auto',
+                        height: 'auto',
+                      }),
                       maxWidth: 'none',
                       maxHeight: 'none'
                     }}
@@ -1569,6 +1586,31 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto p-4">
               {ocrResult ? (
                 <div className="space-y-4">
+                  {/* Money Saved Calculator */}
+                  {(() => {
+                    // 실제 OCR 처리된 영역 수와 페이지 수 사용
+                    const actualAreasCount = processedAreasCount > 0 ? processedAreasCount : 0;
+                    const actualPagesCount = processedPagesSet.size > 0 ? processedPagesSet.size : (isPdf ? totalPages : 1);
+                    const MINIMUM_WAGE_PER_HOUR = 10320; // 원/시간
+                    const timeSavedMinutes = actualAreasCount * actualPagesCount * 1; // 분 단위 (페이지당 1분)
+                    const moneySaved = (timeSavedMinutes / 60) * MINIMUM_WAGE_PER_HOUR; // 원
+                    return (
+                      <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                        <div className="text-xs text-blue-700 mb-2">
+                          {t('workspace.rightInspector.results.calculationNote')}
+                        </div>
+                        <div className="text-sm text-blue-800 mb-1">
+                          {t('workspace.rightInspector.results.moneySaved')}
+                        </div>
+                        <div className="text-2xl font-bold text-blue-600">
+                          {moneySaved.toLocaleString('ko-KR')} {t('workspace.rightInspector.results.won')}
+                        </div>
+                        <div className="text-xs text-blue-600 mt-2">
+                          (영역 {actualAreasCount}개 × 페이지 {actualPagesCount}개 × 1분, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="bg-gray-50 rounded-md p-4 border border-gray-200">
                     <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono">
                       {ocrResult}

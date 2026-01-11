@@ -25,22 +25,22 @@ echo "[1/3] Ollama 서버 확인 중..."
 OLLAMA_PID=""
 
 if [ "$OLLAMA_AVAILABLE" = true ]; then
-    if ! pgrep -f "ollama serve" > /dev/null; then
-        echo "Ollama 서버 시작 중..."
-        nohup ollama serve > logs/ollama.log 2>&1 &
-        OLLAMA_PID=$!
-        echo "Ollama 서버 시작됨 (PID: $OLLAMA_PID)"
-        sleep 3
-    else
+if ! pgrep -f "ollama serve" > /dev/null; then
+    echo "Ollama 서버 시작 중..."
+    nohup ollama serve > logs/ollama.log 2>&1 &
+    OLLAMA_PID=$!
+    echo "Ollama 서버 시작됨 (PID: $OLLAMA_PID)"
+    sleep 3
+else
         OLLAMA_PID=$(pgrep -f "ollama serve" | head -1)
         echo "Ollama 서버가 이미 실행 중입니다. (PID: $OLLAMA_PID)"
-    fi
+fi
 
-    # Ollama 서버가 정상적으로 응답하는지 확인
+# Ollama 서버가 정상적으로 응답하는지 확인
+if ! ollama list > /dev/null 2>&1; then
+    echo "경고: Ollama 서버가 응답하지 않습니다. 잠시 후 다시 시도합니다..."
+    sleep 5
     if ! ollama list > /dev/null 2>&1; then
-        echo "경고: Ollama 서버가 응답하지 않습니다. 잠시 후 다시 시도합니다..."
-        sleep 5
-        if ! ollama list > /dev/null 2>&1; then
             echo "경고: Ollama 서버를 시작할 수 없습니다. OCR 기능이 작동하지 않을 수 있습니다."
             echo "      Ollama를 설치하려면: curl -fsSL https://ollama.ai/install.sh | sh"
             OLLAMA_PID=""
@@ -49,11 +49,11 @@ if [ "$OLLAMA_AVAILABLE" = true ]; then
         fi
     else
         echo "Ollama 서버가 정상적으로 시작되었습니다."
-    fi
+fi
 
     # 모델 확인 (Ollama가 정상 작동하는 경우에만)
     if [ -n "$OLLAMA_PID" ]; then
-        echo "설치된 모델 확인 중..."
+echo "설치된 모델 확인 중..."
         ollama list || echo "경고: 모델 목록을 가져올 수 없습니다."
     fi
 else
@@ -114,7 +114,7 @@ cd ..
 
 # PID 파일 저장
 if [ -n "$OLLAMA_PID" ]; then
-    echo "$OLLAMA_PID" > logs/ollama.pid
+echo "$OLLAMA_PID" > logs/ollama.pid
 else
     echo "" > logs/ollama.pid
 fi
@@ -137,7 +137,7 @@ echo "  ✓ Frontend: http://localhost:3000 (PID: $FRONTEND_PID)"
 echo ""
 echo "로그 파일:"
 if [ -n "$OLLAMA_PID" ]; then
-    echo "  - Ollama: logs/ollama.log"
+echo "  - Ollama: logs/ollama.log"
 fi
 echo "  - Backend: logs/backend.log"
 echo "  - Frontend: logs/frontend.log"
