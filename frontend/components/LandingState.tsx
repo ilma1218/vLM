@@ -1,17 +1,21 @@
 'use client';
 
-import { Upload, FileText, Layers, Sparkles, TrendingUp } from 'lucide-react';
+import { Upload, FileText, Layers, Sparkles, TrendingUp, Calculator } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
+import TimeSavingsCalculator from './TimeSavingsCalculator';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 interface FileGroup {
   filename: string;
-  records: any[];
+  records?: any[];  // 통계 화면에서는 사용하지 않으므로 optional
   total_records: number;
+  pages_count?: number;
+  money_saved?: number;
   latest_timestamp: string;
   first_timestamp?: string;
+  date?: string;
 }
 
 interface LandingStateProps {
@@ -23,6 +27,24 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
   const { t } = useLanguage();
   const [recentFiles, setRecentFiles] = useState<FileGroup[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+
+  // 사용자 아이디 가져오기 (localStorage에서 가져오거나 기본값 사용)
+  const getUserId = (): string => {
+    if (typeof window !== 'undefined') {
+      const userId = localStorage.getItem('userId');
+      if (userId) {
+        // 아이디를 마스킹 (예: chr**)
+        if (userId.length > 2) {
+          return userId.substring(0, 2) + '**';
+        }
+        return userId + '**';
+      }
+    }
+    return 'user**';
+  };
+
+  const userId = getUserId();
 
   // 최근 파일 통계 가져오기
   useEffect(() => {
@@ -53,12 +75,6 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
     fetchRecentStats();
   }, []);
 
-  // 절약 금액 계산 (영역 수 = total_records, 페이지는 추정값으로 1로 가정)
-  const calculateMoneySaved = (totalRecords: number, pagesCount: number = 1) => {
-    const MINIMUM_WAGE_PER_HOUR = 10320;
-    const timeSavedMinutes = totalRecords * pagesCount * 1; // 영역 수 × 페이지 수 × 1분
-    return (timeSavedMinutes / 60) * MINIMUM_WAGE_PER_HOUR;
-  };
 
   // 날짜 포맷팅
   const formatDate = (dateString: string) => {
@@ -167,17 +183,26 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
       {/* Statistics Section - Recent Savings */}
       {recentFiles.length > 0 && (
         <div className="w-full max-w-7xl mx-auto mb-12">
-          <div className="flex items-center mb-8">
-            <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-2 mr-4 shadow-lg">
-              <TrendingUp className="w-6 h-6 text-white" />
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center">
+              <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-2 mr-4 shadow-lg">
+                <TrendingUp className="w-6 h-6 text-white" />
+              </div>
+              <h2 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
+                {t('landing.statistics.title')}
+              </h2>
             </div>
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-              {t('landing.statistics.title')}
-            </h2>
+            <button
+              onClick={() => setShowCalculator(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-md"
+            >
+              <Calculator className="w-5 h-5" />
+              {t('landing.calculator.title')}
+            </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {recentFiles.map((fileGroup, index) => {
-              const moneySaved = calculateMoneySaved(fileGroup.total_records);
+              const moneySaved = fileGroup.money_saved || 0;
               return (
                 <div
                   key={index}
@@ -185,12 +210,17 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center mb-3">
+                      <div className="flex items-center mb-2">
                         <div className="bg-gradient-to-br from-blue-100 to-indigo-100 rounded-lg p-2 mr-3">
                           <FileText className="w-4 h-4 text-blue-600" />
                         </div>
-                        <div className="text-sm font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors" title={fileGroup.filename}>
-                          {fileGroup.filename}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors" title={fileGroup.filename}>
+                            {fileGroup.filename}
+                          </div>
+                          <div className="text-xs text-gray-500 font-medium mt-1">
+                            {userId}
+                          </div>
                         </div>
                       </div>
                       <div className="text-xs text-gray-500 font-medium ml-[44px]">
@@ -217,6 +247,12 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
           </div>
         </div>
       )}
+
+      {/* Time Savings Calculator Modal */}
+      <TimeSavingsCalculator
+        isOpen={showCalculator}
+        onClose={() => setShowCalculator(false)}
+      />
     </div>
   );
 }

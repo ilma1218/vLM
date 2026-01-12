@@ -470,12 +470,23 @@ async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
     grouped=True이면 파일별로 그룹화하여 반환합니다.
     """
     try:
-        records = db.query(OCRRecord).order_by(OCRRecord.timestamp.desc()).all()
+        if grouped:
+            # 통계만 필요하므로 필요한 컬럼만 선택하여 성능 최적화
+            from sqlalchemy import select
+            from datetime import datetime, timedelta
+            
+            # 최근 30일 데이터만 가져와서 성능 개선 (필요시 조정 가능)
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            records = db.query(OCRRecord).filter(
+                OCRRecord.timestamp >= thirty_days_ago
+            ).order_by(OCRRecord.timestamp.desc()).all()
+        else:
+            records = db.query(OCRRecord).order_by(OCRRecord.timestamp.desc()).all()
         
         if grouped:
             # 파일명별로 먼저 분류
             from collections import defaultdict
-            from datetime import timedelta
+            from datetime import timedelta, date
             
             # 파일명별로 레코드 그룹화
             filename_groups = defaultdict(list)
@@ -483,52 +494,55 @@ async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
                 filename = record.filename or "Unknown"
                 filename_groups[filename].append(record)
             
-            # 각 파일명 그룹 내에서 시간 기반으로 세부 그룹 생성
+            # 각 파일명 그룹 내에서 날짜(일) 기반으로 세부 그룹 생성
             files_dict = {}
-            GROUP_TIME_THRESHOLD = timedelta(minutes=10)  # 10분 이상 차이나면 별도 그룹
+            MINIMUM_WAGE_PER_HOUR = 10320  # 최저시급
             
             for filename, file_records in filename_groups.items():
                 # 같은 파일명의 레코드들을 시간순으로 정렬 (최신순)
                 file_records.sort(key=lambda x: x.timestamp, reverse=True)
                 
-                # 시간 기반으로 그룹 분리
-                current_group = None
-                current_group_key = None
-                last_timestamp = None
-                
+                # 날짜별로 그룹화 (일단위)
+                daily_groups = defaultdict(list)
                 for record in file_records:
-                    # 첫 번째 레코드이거나, 이전 레코드와의 시간 차이가 임계값 이상이면 새 그룹 시작
-                    if (last_timestamp is None or 
-                        (last_timestamp - record.timestamp) > GROUP_TIME_THRESHOLD):
-                        # 새 그룹 생성
-                        # 그룹 키는 파일명_첫타임스탬프 형식
-                        group_timestamp_str = record.timestamp.strftime("%Y%m%d_%H%M%S")
-                        current_group_key = f"{filename}_{group_timestamp_str}"
-                        
-                        current_group = {
-                            "filename": filename,
-                            "records": [],
-                            "total_records": 0,
-                            "latest_timestamp": record.timestamp,
-                            "first_timestamp": record.timestamp
-                        }
-                        files_dict[current_group_key] = current_group
+                    record_date = record.timestamp.date()
+                    daily_groups[record_date].append(record)
+                
+                # 각 날짜별 그룹 생성
+                for record_date, daily_records in daily_groups.items():
+                    # 날짜별 그룹 키 생성
+                    group_date_str = record_date.strftime("%Y%m%d")
+                    current_group_key = f"{filename}_{group_date_str}"
                     
-                    # 현재 그룹에 레코드 추가
-                    current_group["records"].append({
-                        "id": record.id,
-                        "extracted_text": record.extracted_text,
-                        "cropped_image": record.cropped_image,
-                        "timestamp": record.timestamp.isoformat(),
-                        "page_number": record.page_number
-                    })
-                    current_group["total_records"] += 1
+                    # 고유한 페이지 번호 집합 계산 (실제 처리된 페이지 수)
+                    pages_set = set()
+                    images_count = 0
+                    for record in daily_records:
+                        if record.page_number is not None:
+                            pages_set.add(record.page_number)
+                        else:
+                            images_count += 1  # 이미지 개수 카운트
                     
-                    # 최신 타임스탬프 업데이트
-                    if record.timestamp > current_group["latest_timestamp"]:
-                        current_group["latest_timestamp"] = record.timestamp
+                    # 페이지 수 계산: 고유한 페이지 번호 개수 + 이미지가 있으면 1페이지 추가
+                    unique_pages_count = len(pages_set)
+                    if images_count > 0:
+                        unique_pages_count = max(unique_pages_count, 1)  # 이미지가 있으면 최소 1페이지
                     
-                    last_timestamp = record.timestamp
+                    # 절약 금액 계산 (영역 수 × 페이지 수 × 1분) / 60 × 최저시급
+                    total_records = len(daily_records)
+                    time_saved_minutes = total_records * unique_pages_count * 1
+                    money_saved = (time_saved_minutes / 60) * MINIMUM_WAGE_PER_HOUR
+                    
+                    current_group = {
+                        "filename": filename,
+                        "total_records": total_records,
+                        "pages_count": unique_pages_count,
+                        "money_saved": round(money_saved, 2),
+                        "latest_timestamp": max(r.timestamp for r in daily_records),
+                        "first_timestamp": min(r.timestamp for r in daily_records),
+                        "date": record_date.isoformat()
+                    }
+                    files_dict[current_group_key] = current_group
             
             # 파일 목록을 최신 순으로 정렬하고 타임스탬프를 문자열로 변환
             files_list = []

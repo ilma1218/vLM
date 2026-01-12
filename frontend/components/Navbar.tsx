@@ -20,6 +20,9 @@ export default function Navbar() {
             <Link href="/" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               {t('nav.home')}
             </Link>
+            <Link href="/pricing" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+              {t('nav.pricing')}
+            </Link>
             <Link href="/monitor" className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               {t('nav.history')}
             </Link>
