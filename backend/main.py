@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List
 import ollama
@@ -7,6 +8,10 @@ import base64
 import re
 import io
 import json
+import subprocess
+import tempfile
+import os
+from pathlib import Path
 from PIL import Image
 from database import init_db, get_db, OCRRecord
 from datetime import datetime
@@ -464,10 +469,11 @@ async def ocr_image(
 
 
 @app.get("/history")
-async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
+async def get_history(grouped: bool = False, include_records: bool = False, db: Session = Depends(get_db)):
     """
     OCR 히스토리를 반환합니다.
     grouped=True이면 파일별로 그룹화하여 반환합니다.
+    include_records=True이면 각 그룹에 records 배열을 포함합니다 (기본값: False, 성능 최적화).
     """
     try:
         if grouped:
@@ -542,6 +548,19 @@ async def get_history(grouped: bool = False, db: Session = Depends(get_db)):
                         "first_timestamp": min(r.timestamp for r in daily_records),
                         "date": record_date.isoformat()
                     }
+                    
+                    # 레코드 목록 생성 (include_records=True일 때만, 성능 최적화)
+                    if include_records:
+                        records_list = []
+                        for record in daily_records:
+                            records_list.append({
+                                "id": record.id,
+                                "extracted_text": record.extracted_text,
+                                "cropped_image": record.cropped_image,
+                                "timestamp": record.timestamp.isoformat(),
+                                "page_number": record.page_number
+                            })
+                        current_group["records"] = records_list
                     files_dict[current_group_key] = current_group
             
             # 파일 목록을 최신 순으로 정렬하고 타임스탬프를 문자열로 변환
@@ -726,6 +745,121 @@ async def delete_file_records(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete file records: {str(e)}")
+
+
+@app.post("/convert/ppt-to-pdf")
+async def convert_ppt_to_pdf(file: UploadFile = File(...)):
+    """
+    PPT 파일을 PDF로 변환합니다.
+    LibreOffice를 사용하여 변환합니다.
+    """
+    try:
+        # 파일 확장자 확인
+        filename = file.filename or "unknown"
+        file_ext = Path(filename).suffix.lower()
+        
+        if file_ext not in ['.ppt', '.pptx']:
+            raise HTTPException(status_code=400, detail="PPT 또는 PPTX 파일만 지원됩니다.")
+        
+        # 임시 디렉토리 생성
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 안전한 임시 파일명 생성 (한글 파일명 문제 해결)
+            import uuid
+            from urllib.parse import quote
+            safe_input_name = f"input_{uuid.uuid4().hex}{file_ext}"
+            input_path = os.path.join(temp_dir, safe_input_name)
+            
+            # 업로드된 파일 저장
+            with open(input_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            
+            # PDF 출력 파일명 (임시 파일명 기반)
+            safe_output_name = f"input_{uuid.uuid4().hex}.pdf"
+            output_path = os.path.join(temp_dir, safe_output_name)
+            
+            # LibreOffice를 사용하여 PPT를 PDF로 변환
+            # libreoffice --headless --convert-to pdf --outdir <output_dir> <input_file>
+            try:
+                # 인코딩을 명시적으로 지정하여 한글 파일명 문제 해결
+                result = subprocess.run(
+                    [
+                        "libreoffice",
+                        "--headless",
+                        "--convert-to", "pdf",
+                        "--outdir", temp_dir,
+                        input_path
+                    ],
+                    capture_output=True,
+                    encoding='utf-8',
+                    errors='replace',  # 인코딩 오류 시 대체 문자 사용
+                    timeout=60  # 60초 타임아웃
+                )
+                
+                if result.returncode != 0:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"PPT 변환 실패: {result.stderr}"
+                    )
+                
+                # LibreOffice는 입력 파일명 기반으로 출력 파일명을 생성
+                # 입력 파일명에서 확장자만 .pdf로 변경한 파일명 찾기
+                expected_output_name = safe_input_name.rsplit('.', 1)[0] + '.pdf'
+                expected_output_path = os.path.join(temp_dir, expected_output_name)
+                
+                # 변환된 PDF 파일 찾기
+                if os.path.exists(expected_output_path):
+                    actual_output_path = expected_output_path
+                else:
+                    # 파일명을 찾지 못하면 temp_dir에서 .pdf 파일 찾기
+                    pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
+                    if not pdf_files:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="PDF 변환 파일을 찾을 수 없습니다."
+                        )
+                    actual_output_path = os.path.join(temp_dir, pdf_files[0])
+                
+                # PDF 파일 읽기
+                with open(actual_output_path, "rb") as pdf_file:
+                    pdf_content = pdf_file.read()
+                
+                # 원본 파일명에서 확장자만 변경 (한글 파일명 지원)
+                try:
+                    pdf_filename = f"{Path(filename).stem}.pdf"
+                    # Content-Disposition 헤더에 사용할 파일명은 URL 인코딩
+                    encoded_filename = quote(pdf_filename.encode('utf-8'))
+                except Exception:
+                    # 인코딩 실패 시 기본 파일명 사용
+                    pdf_filename = "converted.pdf"
+                    encoded_filename = "converted.pdf"
+                
+                return Response(
+                    content=pdf_content,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{pdf_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+                    }
+                )
+                
+            except subprocess.TimeoutExpired:
+                raise HTTPException(
+                    status_code=500,
+                    detail="PPT 변환 시간이 초과되었습니다."
+                )
+            except FileNotFoundError:
+                raise HTTPException(
+                    status_code=500,
+                    detail="LibreOffice가 설치되어 있지 않습니다. 시스템에 LibreOffice를 설치해주세요."
+                )
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PPT 변환 중 오류가 발생했습니다: {str(e)}"
+        )
 
 
 @app.get("/")

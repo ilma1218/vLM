@@ -109,7 +109,7 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/*,.pdf,.ppt,.pptx"
                 onChange={onFileSelect}
                 className="hidden"
                 id="file-upload-landing"
@@ -182,8 +182,9 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
 
       {/* Statistics Section - Recent Savings */}
       {recentFiles.length > 0 && (
-        <div className="w-full max-w-7xl mx-auto mb-12">
-          <div className="flex items-center justify-between mb-8">
+        <div className="w-full mb-12 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 py-12 px-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center justify-between mb-8">
             <div className="flex items-center">
               <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-2 mr-4 shadow-lg">
                 <TrendingUp className="w-6 h-6 text-white" />
@@ -203,6 +204,8 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {recentFiles.map((fileGroup, index) => {
               const moneySaved = fileGroup.money_saved || 0;
+              // 절약 시간 계산: 영역 수 × 페이지 수 × 1분
+              const timeSavedMinutes = fileGroup.total_records * (fileGroup.pages_count || 1) * 1;
               return (
                 <div
                   key={index}
@@ -228,22 +231,37 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <div className="text-xs font-semibold text-gray-600 bg-gray-50 px-3 py-1.5 rounded-full">
-                      {t('landing.statistics.records')}: {fileGroup.total_records}개
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-gray-500 font-medium mb-1">
-                        {t('landing.statistics.saved')}
+                  <div className="space-y-3 pt-4 border-t border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-gray-600 bg-gray-50 px-3 py-1.5 rounded-full">
+                        {t('landing.statistics.records')}: {fileGroup.total_records}개
                       </div>
-                      <div className="text-xl font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                        {moneySaved.toLocaleString('ko-KR')} {t('landing.statistics.won')}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* 절약 시간 */}
+                      <div>
+                        <div className="text-xs text-gray-500 font-medium mb-1">
+                          {t('workspace.rightInspector.results.timeSaved')}
+                        </div>
+                        <div className="text-lg font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                          {timeSavedMinutes} {t('workspace.rightInspector.results.minutes')}
+                        </div>
+                      </div>
+                      {/* 절약 금액 */}
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500 font-medium mb-1">
+                          {t('landing.statistics.saved')}
+                        </div>
+                        <div className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                          {Math.round(moneySaved).toLocaleString('ko-KR')} {t('landing.statistics.won')}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       )}

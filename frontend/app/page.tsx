@@ -7,7 +7,9 @@ import { renderPdfFirstPageToCanvas, renderPdfAllPagesToCanvases, getPdfPageCoun
 import { cropImageToBlob, CropArea } from '@/utils/cropUtils';
 import { Upload, X, Loader2, ChevronLeft, ChevronRight, Plus, Save, FolderOpen, Trash2, Edit2 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
+import { useAuth } from '@/hooks/useAuth';
 import LandingState from '@/components/LandingState';
+import LoginModal from '@/components/LoginModal';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 const OCR_RESULT_STORAGE_KEY = 'ocr_result';
@@ -32,6 +34,8 @@ interface CropAreaData {
 
 export default function Home() {
   const { t } = useLanguage();
+  const { isAuthenticated } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [currentCrop, setCurrentCrop] = useState<Crop>();
@@ -720,6 +724,8 @@ export default function Home() {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
+    // 자동 로그인으로 인증 체크 제거
+
     // 이전 파일 완전히 정리 (먼저 정리)
     setImageSrc(null);
     setCurrentCrop(undefined);
@@ -744,6 +750,71 @@ export default function Home() {
     const fileName = selectedFile.name.toLowerCase();
 
     try {
+      // PPT 파일인 경우 PDF로 변환
+      if (fileName.endsWith('.ppt') || fileName.endsWith('.pptx') || 
+          fileType === 'application/vnd.ms-powerpoint' || 
+          fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        // 파일 상태를 먼저 설정하여 LandingState로 돌아가지 않도록 함
+        setFile(selectedFile);
+        setUploadProgress(10);
+        setIsUploading(true);
+        
+        try {
+          // PPT를 PDF로 변환
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          
+          const convertResponse = await fetch(`${BACKEND_URL}/convert/ppt-to-pdf`, {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (!convertResponse.ok) {
+            const errorData = await convertResponse.json().catch(() => ({ detail: 'PPT 변환 실패' }));
+            throw new Error(errorData.detail || 'PPT를 PDF로 변환하는데 실패했습니다.');
+          }
+          
+          setUploadProgress(50);
+          
+          // 변환된 PDF를 Blob으로 받기
+          const pdfBlob = await convertResponse.blob();
+          const pdfFile = new File([pdfBlob], `${getFileNameWithoutExtension(selectedFile.name)}.pdf`, { type: 'application/pdf' });
+          
+          // PDF 파일로 처리
+          setIsPdf(true);
+          setPdfFile(pdfFile);
+          setCurrentPage(1);
+          setUploadProgress(60);
+          
+          // 모든 페이지를 미리 렌더링
+          setUploadProgress(70);
+          const totalPages = await getPdfPageCount(pdfFile);
+          setTotalPages(totalPages);
+          
+          setUploadProgress(80);
+          const canvases = await renderPdfAllPagesToCanvases(pdfFile);
+          setPdfCanvases(canvases);
+          setUploadProgress(90);
+          
+          // 첫 페이지 표시
+          const dataUrl = canvases[0].toDataURL('image/png');
+          setImageSrc(null);
+          setTimeout(() => {
+            setImageSrc(dataUrl);
+            setUploadProgress(100);
+            setIsUploading(false);
+          }, 50);
+        } catch (convertError) {
+          // PPT 변환 에러는 별도로 처리 (file 상태는 유지하여 에러 메시지 표시)
+          setError(`PPT 변환 중 오류가 발생했습니다: ${convertError instanceof Error ? convertError.message : 'Unknown error'}`);
+          setIsUploading(false);
+          setUploadProgress(0);
+          // file은 유지하여 에러 메시지를 볼 수 있도록 함
+        }
+        
+        return;
+      }
+      
       if (fileType.startsWith('image/')) {
         // 이미지 파일인 경우
         setIsPdf(false);
@@ -1027,7 +1098,19 @@ export default function Home() {
 
   // Landing State: 파일이 없을 때
   if (!file && !imageSrc) {
-    return <LandingState onFileSelect={handleFileSelect} fileInputRef={fileInputRef} />;
+    return (
+      <>
+        <LandingState onFileSelect={handleFileSelect} fileInputRef={fileInputRef} />
+        <LoginModal
+          isOpen={showLoginModal}
+          onClose={() => setShowLoginModal(false)}
+          onSuccess={() => {
+            // 로그인 성공 후 파일 업로드 재시도는 사용자가 다시 선택하도록
+            setShowLoginModal(false);
+          }}
+        />
+      </>
+    );
   }
 
   // Workspace State: 파일이 있을 때 (3-Column IDE Layout)
@@ -1591,22 +1674,32 @@ export default function Home() {
                     // 실제 OCR 처리된 영역 수와 페이지 수 사용
                     const actualAreasCount = processedAreasCount > 0 ? processedAreasCount : 0;
                     const actualPagesCount = processedPagesSet.size > 0 ? processedPagesSet.size : (isPdf ? totalPages : 1);
-                    const MINIMUM_WAGE_PER_HOUR = 10320; // 원/시간
-                    const timeSavedMinutes = actualAreasCount * actualPagesCount * 1; // 분 단위 (페이지당 1분)
-                    const moneySaved = (timeSavedMinutes / 60) * MINIMUM_WAGE_PER_HOUR; // 원
+                    const MINIMUM_WAGE_PER_HOUR = 10320; // 시간당 급여 기준 (원/시간)
+                    const timeSavedMinutes = actualAreasCount * actualPagesCount * 1; // 분 단위 (영역 수 × 페이지 수 × 1분)
+                    // 계산: 영역 수 × 페이지 수 × 1분 × 시급 10,320원
+                    const moneySaved = actualAreasCount * actualPagesCount * 1 * (MINIMUM_WAGE_PER_HOUR / 60); // 원
                     return (
-                      <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                        <div className="text-xs text-blue-700 mb-2">
-                          {t('workspace.rightInspector.results.calculationNote')}
+                      <div className="bg-blue-50 border border-blue-200 rounded-md p-4 space-y-3">
+                        {/* 절약된 시간 */}
+                        <div>
+                          <div className="text-sm text-blue-800 mb-1">
+                            {t('workspace.rightInspector.results.timeSaved')}
+                          </div>
+                          <div className="text-xl font-bold text-blue-600">
+                            {timeSavedMinutes} {t('workspace.rightInspector.results.minutes')}
+                          </div>
                         </div>
-                        <div className="text-sm text-blue-800 mb-1">
-                          {t('workspace.rightInspector.results.moneySaved')}
-                        </div>
-                        <div className="text-2xl font-bold text-blue-600">
-                          {moneySaved.toLocaleString('ko-KR')} {t('workspace.rightInspector.results.won')}
-                        </div>
-                        <div className="text-xs text-blue-600 mt-2">
-                          (영역 {actualAreasCount}개 × 페이지 {actualPagesCount}개 × 1분, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
+                        {/* 절약된 금액 */}
+                        <div>
+                          <div className="text-sm text-blue-800 mb-1">
+                            {t('workspace.rightInspector.results.moneySaved')}
+                          </div>
+                          <div className="text-2xl font-bold text-blue-600">
+                            {Math.round(moneySaved).toLocaleString('ko-KR')} {t('workspace.rightInspector.results.won')}
+                          </div>
+                          <div className="text-xs text-blue-600 mt-2">
+                            (영역 {actualAreasCount}개 × 페이지 {actualPagesCount}개 × 1분, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
+                          </div>
                         </div>
                       </div>
                     );

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square } from 'lucide-react';
+import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -15,7 +16,7 @@ interface OCRRecord {
 
 interface FileGroup {
   filename: string;
-  records: OCRRecord[];
+  records?: OCRRecord[];  // optional: 백엔드에서 grouped=true일 때는 records가 없을 수 있음
   total_records: number;
   latest_timestamp: string;
   first_timestamp?: string;  // 첫 번째 OCR 타임스탬프 (업로드 세션 구분용)
@@ -38,12 +39,14 @@ export default function MonitorPage() {
   const [isDeletingMultiple, setIsDeletingMultiple] = useState(false);
   const [selectedFileGroups, setSelectedFileGroups] = useState<Set<string>>(new Set());
   const [isDeletingMultipleFiles, setIsDeletingMultipleFiles] = useState(false);
+  const [showAllDownloadMenu, setShowAllDownloadMenu] = useState(false);
+  const [showFileDownloadMenu, setShowFileDownloadMenu] = useState<Set<string>>(new Set());
 
   const fetchHistory = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const url = `${BACKEND_URL}/history?grouped=true`;
+      const url = `${BACKEND_URL}/history?grouped=true&include_records=true`;
       console.log('Fetching history from:', url);
       
       const controller = new AbortController();
@@ -161,12 +164,15 @@ export default function MonitorPage() {
       
       // 파일 목록도 업데이트
       setFiles(prevFiles => 
-        prevFiles.map(fileGroup => ({
-          ...fileGroup,
-          records: fileGroup.records.map(record =>
-            record.id === updatedRecord.id ? updatedRecord : record
-          )
-        }))
+        prevFiles.map(fileGroup => {
+          const records = fileGroup.records || [];
+          return {
+            ...fileGroup,
+            records: records.map(record =>
+              record.id === updatedRecord.id ? updatedRecord : record
+            )
+          };
+        })
       );
       
       setIsEditing(false);
@@ -192,11 +198,15 @@ export default function MonitorPage() {
 
       // 파일 목록에서 삭제
       setFiles(prevFiles => 
-        prevFiles.map(fileGroup => ({
-          ...fileGroup,
-          records: fileGroup.records.filter(record => record.id !== selectedRecord.id),
-          total_records: fileGroup.records.filter(record => record.id !== selectedRecord.id).length
-        })).filter(fileGroup => fileGroup.total_records > 0)
+        prevFiles.map(fileGroup => {
+          const records = fileGroup.records || [];
+          const filteredRecords = records.filter(record => record.id !== selectedRecord.id);
+          return {
+            ...fileGroup,
+            records: filteredRecords,
+            total_records: filteredRecords.length
+          };
+        }).filter(fileGroup => fileGroup.total_records > 0)
       );
       
       setSelectedRecord(null);
@@ -271,7 +281,7 @@ export default function MonitorPage() {
   const selectAllRecords = () => {
     const allRecordIds = new Set<number>();
     files.forEach(fileGroup => {
-      fileGroup.records.forEach(record => {
+      (fileGroup.records || []).forEach(record => {
         allRecordIds.add(record.id);
       });
     });
@@ -352,7 +362,7 @@ export default function MonitorPage() {
       
       const deletedRecordIds = new Set<number>();
       deletedFileGroups.forEach(fileGroup => {
-        fileGroup.records.forEach(record => {
+        (fileGroup.records || []).forEach(record => {
           deletedRecordIds.add(record.id);
         });
       });
@@ -406,11 +416,15 @@ export default function MonitorPage() {
       
       // 파일 목록에서 삭제된 레코드 제거
       setFiles(prevFiles => 
-        prevFiles.map(fileGroup => ({
-          ...fileGroup,
-          records: fileGroup.records.filter(record => !deletedIds.has(record.id)),
-          total_records: fileGroup.records.filter(record => !deletedIds.has(record.id)).length
-        })).filter(fileGroup => fileGroup.total_records > 0)
+        prevFiles.map(fileGroup => {
+          const records = fileGroup.records || [];
+          const filteredRecords = records.filter(record => !deletedIds.has(record.id));
+          return {
+            ...fileGroup,
+            records: filteredRecords,
+            total_records: filteredRecords.length
+          };
+        }).filter(fileGroup => fileGroup.total_records > 0)
       );
 
       // 삭제된 레코드가 선택되어 있으면 선택 해제
@@ -442,7 +456,7 @@ export default function MonitorPage() {
   const getAllRecordsSorted = useCallback((): OCRRecord[] => {
     const allRecords: OCRRecord[] = [];
     files.forEach(fileGroup => {
-      allRecords.push(...fileGroup.records);
+      allRecords.push(...(fileGroup.records || []));
     });
     // 시간순으로 정렬 (최신순)
     return allRecords.sort((a, b) => 
@@ -517,12 +531,258 @@ export default function MonitorPage() {
     }).format(date);
   };
 
+  // key:value 패턴 파싱 함수
+  const parseKeyValue = (text: string): Record<string, string> => {
+    const result: Record<string, string> = {};
+    // "key:value" 패턴 찾기 (줄바꿈 또는 끝까지)
+    const pattern = /([^:\n\r]+):\s*([^\n\r]+)/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const key = match[1].trim();
+      const value = match[2].trim();
+      if (key && value) {
+        result[key] = value;
+      }
+    }
+    return result;
+  };
+
+  // 전체 텍스트 다운로드 (파일 그룹별)
+  const downloadAllText = (fileGroup: FileGroup) => {
+    const records = fileGroup.records || [];
+    if (records.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    const data = records.map((record, index) => ({
+      '번호': index + 1,
+      'ID': record.id,
+      '파일명': fileGroup.filename,
+      '페이지': record.page_number || '',
+      '타임스탬프': formatDate(record.timestamp),
+      '추출된 텍스트': record.extracted_text || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'OCR 결과');
+
+    // 파일명 생성 (특수문자 제거)
+    const safeFilename = fileGroup.filename.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
+    const filename = `${safeFilename}_전체텍스트_${new Date().toISOString().split('T')[0]}.xlsx`;
+    
+    XLSX.writeFile(wb, filename);
+  };
+
+  // key:value 형태 다운로드 (파일 그룹별)
+  const downloadKeyValue = (fileGroup: FileGroup) => {
+    const records = fileGroup.records || [];
+    if (records.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    // 모든 레코드를 파싱하여 모든 key 수집
+    const allKeys = new Set<string>();
+    const parsedRecords: Array<Record<string, string> & { _id: number; _page?: number; _timestamp: string }> = [];
+
+    records.forEach((record) => {
+      const parsed = parseKeyValue(record.extracted_text);
+      Object.keys(parsed).forEach(key => allKeys.add(key));
+      parsedRecords.push({
+        _id: record.id,
+        _page: record.page_number,
+        _timestamp: formatDate(record.timestamp),
+        ...parsed,
+      });
+    });
+
+    // 기본 컬럼 + 모든 key 컬럼
+    const columns = ['번호', 'ID', '파일명', '페이지', '타임스탬프', ...Array.from(allKeys).sort()];
+    
+    const data = parsedRecords.map((parsed, index) => {
+      const row: Record<string, any> = {
+        '번호': index + 1,
+        'ID': parsed._id,
+        '파일명': fileGroup.filename,
+        '페이지': parsed._page || '',
+        '타임스탬프': parsed._timestamp,
+      };
+      
+      // 모든 key에 대해 value 추가 (없으면 빈 문자열)
+      allKeys.forEach(key => {
+        row[key] = parsed[key] || '';
+      });
+      
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'OCR 결과');
+
+    // 파일명 생성
+    const safeFilename = fileGroup.filename.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
+    const filename = `${safeFilename}_KeyValue_${new Date().toISOString().split('T')[0]}.xlsx`;
+    
+    XLSX.writeFile(wb, filename);
+  };
+
+  // 전체 파일 그룹 다운로드 (전체 텍스트)
+  const downloadAllFilesText = () => {
+    if (files.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    const allData: any[] = [];
+    files.forEach((fileGroup) => {
+      const records = fileGroup.records || [];
+      records.forEach((record) => {
+        allData.push({
+          '번호': allData.length + 1,
+          'ID': record.id,
+          '파일명': fileGroup.filename,
+          '페이지': record.page_number || '',
+          '타임스탬프': formatDate(record.timestamp),
+          '추출된 텍스트': record.extracted_text || '',
+        });
+      });
+    });
+
+    if (allData.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(allData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '전체 OCR 결과');
+
+    const filename = `전체_OCR_결과_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
+  // 전체 파일 그룹 다운로드 (key:value)
+  const downloadAllFilesKeyValue = () => {
+    if (files.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    // 모든 레코드를 파싱하여 모든 key 수집
+    const allKeys = new Set<string>();
+    const parsedRecords: Array<Record<string, string> & { _id: number; _filename: string; _page?: number; _timestamp: string }> = [];
+
+    files.forEach((fileGroup) => {
+      const records = fileGroup.records || [];
+      records.forEach((record) => {
+        const parsed = parseKeyValue(record.extracted_text);
+        Object.keys(parsed).forEach(key => allKeys.add(key));
+        parsedRecords.push({
+          _id: record.id,
+          _filename: fileGroup.filename,
+          _page: record.page_number,
+          _timestamp: formatDate(record.timestamp),
+          ...parsed,
+        });
+      });
+    });
+
+    if (parsedRecords.length === 0) {
+      alert('다운로드할 데이터가 없습니다.');
+      return;
+    }
+
+    const columns = ['번호', 'ID', '파일명', '페이지', '타임스탬프', ...Array.from(allKeys).sort()];
+    
+    const data = parsedRecords.map((parsed, index) => {
+      const row: Record<string, any> = {
+        '번호': index + 1,
+        'ID': parsed._id,
+        '파일명': parsed._filename,
+        '페이지': parsed._page || '',
+        '타임스탬프': parsed._timestamp,
+      };
+      
+      allKeys.forEach(key => {
+        row[key] = parsed[key] || '';
+      });
+      
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '전체 OCR 결과');
+
+    const filename = `전체_OCR_결과_KeyValue_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  };
+
+  // 외부 클릭 시 메뉴 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.download-menu-container')) {
+        setShowAllDownloadMenu(false);
+        setShowFileDownloadMenu(new Set());
+      }
+    };
+
+    if (showAllDownloadMenu || showFileDownloadMenu.size > 0) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showAllDownloadMenu, showFileDownloadMenu]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">OCR History</h1>
           <div className="flex items-center gap-2">
+            {files.length > 0 && (
+              <div className="relative download-menu-container">
+                <button
+                  onClick={() => setShowAllDownloadMenu(!showAllDownloadMenu)}
+                  className="inline-flex items-center px-4 py-2 border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 bg-white hover:bg-green-50"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  엑셀 다운로드
+                </button>
+                {showAllDownloadMenu && (
+                  <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-10">
+                    <div className="py-1">
+                      <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase border-b border-gray-100">
+                        전체 다운로드
+                      </div>
+                      <button
+                        onClick={() => {
+                          downloadAllFilesText();
+                          setShowAllDownloadMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        전체 텍스트 다운로드
+                      </button>
+                      <button
+                        onClick={() => {
+                          downloadAllFilesKeyValue();
+                          setShowAllDownloadMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        전체 Key:Value 다운로드
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {isMultiSelectMode && selectedRecordIds.size > 0 && (
               <div className="flex items-center gap-2 mr-2">
                 <span className="text-sm text-gray-700">
@@ -960,12 +1220,12 @@ export default function MonitorPage() {
               return (
               <div
                 key={groupKey}
-                className={`border rounded-lg overflow-hidden ${
+                className={`border rounded-lg ${
                   isFileSelected ? 'border-green-500 bg-green-50' : 'border-gray-200'
                 }`}
               >
                 {/* 파일 헤더 */}
-                <div className={`flex items-center transition-colors group ${
+                <div className={`flex items-center transition-colors group relative overflow-visible ${
                   isFileSelected ? 'bg-green-50 hover:bg-green-100' : 'bg-gray-50 hover:bg-gray-100'
                 }`}>
                   <div
@@ -1002,6 +1262,57 @@ export default function MonitorPage() {
                     </div>
                   </button>
                   <div className="flex items-center gap-2 pr-4">
+                    {fileGroup.records && fileGroup.records.length > 0 && (
+                      <div className="relative download-menu-container">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newSet = new Set(showFileDownloadMenu);
+                            if (newSet.has(groupKey)) {
+                              newSet.delete(groupKey);
+                            } else {
+                              newSet.add(groupKey);
+                            }
+                            setShowFileDownloadMenu(newSet);
+                          }}
+                          className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-green-600 hover:text-green-800 hover:bg-green-50 rounded-md transition-colors"
+                          title={`${displayName} 엑셀 다운로드`}
+                        >
+                          <Download className="w-4 h-4" />
+                          <span className="hidden sm:inline">엑셀 다운로드</span>
+                        </button>
+                        {showFileDownloadMenu.has(groupKey) && (
+                          <div className="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                            <div className="py-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadAllText(fileGroup);
+                                  const newSet = new Set(showFileDownloadMenu);
+                                  newSet.delete(groupKey);
+                                  setShowFileDownloadMenu(newSet);
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                전체 텍스트 다운로드
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadKeyValue(fileGroup);
+                                  const newSet = new Set(showFileDownloadMenu);
+                                  newSet.delete(groupKey);
+                                  setShowFileDownloadMenu(newSet);
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                Key:Value 다운로드
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1018,34 +1329,36 @@ export default function MonitorPage() {
                 
                 {/* 파일 내 기록 목록 */}
                 {isExpanded && (
-                  <div className="p-4 bg-white">
-                    {isMultiSelectMode && fileGroup.records.length > 0 && (
+                  <div className="p-4 bg-white overflow-hidden">
+                    {isMultiSelectMode && fileGroup.records && fileGroup.records.length > 0 && (
                       <div className="mb-3 pb-3 border-b border-gray-200">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const allIdsInGroup = new Set(fileGroup.records.map(r => r.id));
-                            const allSelected = fileGroup.records.length > 0 && 
-                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === fileGroup.records.length;
+                            const records = fileGroup.records || [];
+                            const allIdsInGroup = new Set(records.map(r => r.id));
+                            const allSelected = records.length > 0 && 
+                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === records.length;
                             
                             if (allSelected) {
                               // 모두 선택되어 있으면 이 그룹의 모든 항목 선택 해제
                               const newSelected = new Set(selectedRecordIds);
-                              fileGroup.records.forEach(r => newSelected.delete(r.id));
+                              records.forEach(r => newSelected.delete(r.id));
                               setSelectedRecordIds(newSelected);
                             } else {
                               // 일부만 선택되어 있으면 모두 선택
                               const newSelected = new Set(selectedRecordIds);
-                              fileGroup.records.forEach(r => newSelected.add(r.id));
+                              records.forEach(r => newSelected.add(r.id));
                               setSelectedRecordIds(newSelected);
                             }
                           }}
                           className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-2"
                         >
                           {(() => {
-                            const allIdsInGroup = new Set(fileGroup.records.map(r => r.id));
-                            const allSelected = fileGroup.records.length > 0 && 
-                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === fileGroup.records.length;
+                            const records = fileGroup.records || [];
+                            const allIdsInGroup = new Set(records.map(r => r.id));
+                            const allSelected = records.length > 0 && 
+                              Array.from(selectedRecordIds).filter(id => allIdsInGroup.has(id)).length === records.length;
                             return allSelected ? (
                               <>
                                 <CheckSquare className="w-4 h-4" />
@@ -1062,7 +1375,7 @@ export default function MonitorPage() {
                       </div>
                     )}
                     <div className="space-y-3">
-                      {fileGroup.records.map((record) => {
+                      {(fileGroup.records || []).map((record) => {
                         const isSelected = selectedRecordIds.has(record.id);
                         return (
                           <div

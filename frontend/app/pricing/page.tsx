@@ -1,10 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { useLanguage } from '@/lib/i18n';
+import { useAuth } from '@/hooks/useAuth';
 import { Check, Crown, Users, Building2, CreditCard, Info, FileText, AlertCircle } from 'lucide-react';
+import LoginModal from '@/components/LoginModal';
 
 export default function PricingPage() {
   const { t } = useLanguage();
+  const { isAuthenticated } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const plans = [
     {
@@ -20,12 +25,12 @@ export default function PricingPage() {
     {
       key: 'pro',
       icon: <Crown className="w-6 h-6" />,
-      popular: true,
+      popular: false,
     },
     {
       key: 'flex',
       icon: <Users className="w-6 h-6" />,
-      popular: false,
+      popular: true,
     },
     {
       key: 'enterprise',
@@ -35,6 +40,7 @@ export default function PricingPage() {
   ];
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-12 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -113,6 +119,11 @@ export default function PricingPage() {
 
                   {/* Button */}
                   <button
+                    onClick={() => {
+                      // 자동 로그인으로 인증 체크 제거
+                      // TODO: 실제 결제/가입 로직 구현
+                      console.log(`Selected plan: ${plan.key}`);
+                    }}
                     className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors mb-6 ${
                       plan.popular
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
@@ -475,6 +486,15 @@ export default function PricingPage() {
         </div>
       </div>
     </div>
+    <LoginModal
+      isOpen={showLoginModal}
+      onClose={() => setShowLoginModal(false)}
+      onSuccess={() => {
+        setShowLoginModal(false);
+        // 로그인 성공 후 다시 버튼 클릭하도록 (또는 자동으로 진행)
+      }}
+    />
+    </>
   );
 }
 
