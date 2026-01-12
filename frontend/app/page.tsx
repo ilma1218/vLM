@@ -17,6 +17,12 @@ const PROMPT_STORAGE_KEY = 'custom_prompt';
 const PROMPT_LIST_STORAGE_KEY = 'saved_prompts';
 const DEFAULT_PROMPT = 'Extract ONLY the text that is ACTUALLY VISIBLE in this cropped image. Read from left to right, top to bottom, line by line. Extract each line exactly once. Do NOT generate patterns. Do NOT create number sequences like \'10, 11, 12...\'. Do NOT repeat any text. Do NOT extrapolate beyond what is visible. Output only the actual text you can see in the image:';
 
+// 파일명 유틸리티 함수
+const getFileNameWithoutExtension = (filename: string): string => {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot !== -1 ? filename.substring(0, lastDot) : filename;
+};
+
 interface SavedPrompt {
   id: string;
   name: string;

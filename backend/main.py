@@ -759,7 +759,7 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
         file_ext = Path(filename).suffix.lower()
         
         if file_ext not in ['.ppt', '.pptx']:
-            raise HTTPException(status_code=400, detail="PPT 또는 PPTX 파일만 지원됩니다.")
+            raise HTTPException(status_code=400, detail="Only PPT or PPTX files are supported")
         
         # 임시 디렉토리 생성
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -781,7 +781,7 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
             # LibreOffice를 사용하여 PPT를 PDF로 변환
             # libreoffice --headless --convert-to pdf --outdir <output_dir> <input_file>
             try:
-                # 인코딩을 명시적으로 지정하여 한글 파일명 문제 해결
+                # 인코딩 문제를 피하기 위해 text=False로 설정하고 bytes로 처리
                 result = subprocess.run(
                     [
                         "libreoffice",
@@ -791,15 +791,17 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
                         input_path
                     ],
                     capture_output=True,
-                    encoding='utf-8',
-                    errors='replace',  # 인코딩 오류 시 대체 문자 사용
                     timeout=60  # 60초 타임아웃
                 )
                 
                 if result.returncode != 0:
+                    # stderr를 안전하게 디코딩 (ASCII로만 구성된 메시지 사용)
+                    error_msg = result.stderr.decode('utf-8', errors='replace') if result.stderr else "Unknown error"
+                    # 한글을 제거하고 ASCII만 사용하여 인코딩 오류 방지
+                    safe_error_msg = ''.join(c if ord(c) < 128 else '?' for c in error_msg)
                     raise HTTPException(
                         status_code=500,
-                        detail=f"PPT 변환 실패: {result.stderr}"
+                        detail=f"PPT conversion failed: {safe_error_msg[:200]}"  # ASCII만 사용
                     )
                 
                 # LibreOffice는 입력 파일명 기반으로 출력 파일명을 생성
@@ -816,7 +818,7 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
                     if not pdf_files:
                         raise HTTPException(
                             status_code=500,
-                            detail="PDF 변환 파일을 찾을 수 없습니다."
+                            detail="PDF conversion file not found"
                         )
                     actual_output_path = os.path.join(temp_dir, pdf_files[0])
                 
@@ -826,39 +828,46 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
                 
                 # 원본 파일명에서 확장자만 변경 (한글 파일명 지원)
                 try:
-                    pdf_filename = f"{Path(filename).stem}.pdf"
-                    # Content-Disposition 헤더에 사용할 파일명은 URL 인코딩
-                    encoded_filename = quote(pdf_filename.encode('utf-8'))
+                    # 파일명을 안전하게 처리 (ASCII로 변환)
+                    original_stem = Path(filename).stem
+                    # 한글을 ASCII로 변환하거나 제거
+                    safe_stem = ''.join(c if ord(c) < 128 else '_' for c in original_stem)
+                    # 빈 파일명 방지
+                    if not safe_stem or safe_stem.strip() == '':
+                        safe_stem = "converted"
+                    pdf_filename = f"{safe_stem}.pdf"
                 except Exception:
                     # 인코딩 실패 시 기본 파일명 사용
                     pdf_filename = "converted.pdf"
-                    encoded_filename = "converted.pdf"
                 
                 return Response(
                     content=pdf_content,
                     media_type="application/pdf",
                     headers={
-                        "Content-Disposition": f'attachment; filename="{pdf_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+                        "Content-Disposition": f'attachment; filename="{pdf_filename}"'
                     }
                 )
                 
             except subprocess.TimeoutExpired:
                 raise HTTPException(
                     status_code=500,
-                    detail="PPT 변환 시간이 초과되었습니다."
+                    detail="PPT conversion timeout"
                 )
             except FileNotFoundError:
                 raise HTTPException(
                     status_code=500,
-                    detail="LibreOffice가 설치되어 있지 않습니다. 시스템에 LibreOffice를 설치해주세요."
+                    detail="LibreOffice is not installed. Please install LibreOffice on the system."
                 )
                 
     except HTTPException:
         raise
     except Exception as e:
+        # 에러 메시지를 안전하게 처리 (ASCII만 사용)
+        error_str = str(e)
+        safe_error = ''.join(c if ord(c) < 128 else '?' for c in error_str)
         raise HTTPException(
             status_code=500,
-            detail=f"PPT 변환 중 오류가 발생했습니다: {str(e)}"
+            detail=f"PPT conversion error: {safe_error[:200]}"
         )
 
 
