@@ -24,10 +24,11 @@ const getFileNameWithoutExtension = (filename: string): string => {
 };
 
 interface SavedPrompt {
-  id: string;
+  id: number;
   name: string;
   prompt: string;
-  createdAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface CropAreaData {
@@ -82,7 +83,20 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // localStorage에서 OCR 결과 및 프롬프트 복원 (컴포넌트 마운트 시 한 번만)
+  // 서버에서 프롬프트 목록 불러오기
+  const fetchPrompts = useCallback(async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/prompts`);
+      if (response.ok) {
+        const prompts = await response.json();
+        setSavedPrompts(prompts);
+      }
+    } catch (error) {
+      console.error('Failed to fetch prompts:', error);
+    }
+  }, []);
+
+  // localStorage에서 OCR 결과 복원 (컴포넌트 마운트 시 한 번만)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedOcrResult = localStorage.getItem(OCR_RESULT_STORAGE_KEY);
@@ -91,24 +105,10 @@ export default function Home() {
         setOcrResult(savedOcrResult);
       }
       
-      // 저장된 프롬프트 복원
-      const savedPrompt = localStorage.getItem(PROMPT_STORAGE_KEY);
-      if (savedPrompt !== null) {
-        setCustomPrompt(savedPrompt);
-      }
-      
-      // 저장된 프롬프트 목록 복원
-      const savedPromptsJson = localStorage.getItem(PROMPT_LIST_STORAGE_KEY);
-      if (savedPromptsJson) {
-        try {
-          const prompts = JSON.parse(savedPromptsJson);
-          setSavedPrompts(prompts);
-        } catch (e) {
-          console.error('Failed to parse saved prompts:', e);
-        }
-      }
+      // 서버에서 프롬프트 목록 불러오기
+      fetchPrompts();
     }
-  }, []); // 빈 배열: 컴포넌트 마운트 시 한 번만 실행
+  }, [fetchPrompts]); // fetchPrompts 의존성 추가
 
   // OCR 결과가 변경될 때마다 localStorage에 저장
   useEffect(() => {
@@ -123,20 +123,32 @@ export default function Home() {
   }, [ocrResult]);
 
   // 저장된 프롬프트 목록 저장
-  const savePromptToList = useCallback((name: string, prompt: string) => {
-    const newPrompt: SavedPrompt = {
-      id: Date.now().toString(),
-      name: name || `프롬프트 ${savedPrompts.length + 1}`,
-      prompt: prompt,
-      createdAt: new Date().toISOString(),
-    };
-    const updatedPrompts = [newPrompt, ...savedPrompts];
-    setSavedPrompts(updatedPrompts);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(PROMPT_LIST_STORAGE_KEY, JSON.stringify(updatedPrompts));
+  const savePromptToList = useCallback(async (name: string, prompt: string) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/prompts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: name || `프롬프트 ${savedPrompts.length + 1}`,
+          prompt: prompt,
+        }),
+      });
+      
+      if (response.ok) {
+        const newPrompt = await response.json();
+        setSavedPrompts(prev => [newPrompt, ...prev]);
+        setShowSaveDialog(false);
+        setPromptName('');
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        setError(`프롬프트 저장 실패: ${errorData.detail || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to save prompt:', error);
+      setError('프롬프트 저장 중 오류가 발생했습니다.');
     }
-    setShowSaveDialog(false);
-    setPromptName('');
   }, [savedPrompts]);
 
   // 저장된 프롬프트 불러오기
@@ -148,13 +160,23 @@ export default function Home() {
   }, []);
 
   // 저장된 프롬프트 삭제
-  const deleteSavedPrompt = useCallback((id: string) => {
-    const updatedPrompts = savedPrompts.filter(p => p.id !== id);
-    setSavedPrompts(updatedPrompts);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(PROMPT_LIST_STORAGE_KEY, JSON.stringify(updatedPrompts));
+  const deleteSavedPrompt = useCallback(async (id: number) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/prompts/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        setSavedPrompts(prev => prev.filter(p => p.id !== id));
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        setError(`프롬프트 삭제 실패: ${errorData.detail || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to delete prompt:', error);
+      setError('프롬프트 삭제 중 오류가 발생했습니다.');
     }
-  }, [savedPrompts]);
+  }, []);
 
   // 현재 페이지의 크롭 영역 가져오기
   const getCurrentPageCropAreas = useCallback(() => {
@@ -327,9 +349,11 @@ export default function Home() {
           height: percentageCrop.height / 100,
         };
         
-        // 현재 화면에 보이는 이미지 크기 (로깅 및 참조용)
-        const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
-        const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
+        // 현재 화면에 보이는 이미지 크기 (getBoundingClientRect 사용)
+        // 중요: naturalWidth가 아닌 현재 보이는 크기를 사용
+        const rect = imgRef.current.getBoundingClientRect();
+        const displayedWidth = rect.width;
+        const displayedHeight = rect.height;
         
         // 비율을 포함한 확장된 crop 객체 저장
         setCurrentCompletedCrop({
@@ -486,11 +510,14 @@ export default function Home() {
 
   // 크롭 영역 추가/업데이트
   const addCropArea = useCallback(() => {
-    if (!imgRef.current || !currentCompletedCrop) return;
+    const image = imgRef.current;
+    if (!image || !currentCompletedCrop) return;
     
-    // 현재 화면에 보이는 이미지 크기 (반응형 대응)
-    const displayedWidth = imgRef.current.clientWidth || imgRef.current.getBoundingClientRect().width;
-    const displayedHeight = imgRef.current.clientHeight || imgRef.current.getBoundingClientRect().height;
+    // 현재 화면에 보이는 이미지의 크기 가져오기 (getBoundingClientRect 사용)
+    // 중요: naturalWidth(원본 크기)가 아닌 현재 화면에 보이는 크기를 사용해야 함
+    const rect = image.getBoundingClientRect();
+    const displayedWidth = rect.width;
+    const displayedHeight = rect.height;
     
     const pageKey = isPdf ? currentPage : undefined;
     
@@ -499,7 +526,8 @@ export default function Home() {
     let cropRatio = currentCompletedCrop._cropRatio;
     
     if (!cropRatio) {
-      // cropRatio가 없으면 현재 크기 기준으로 계산 (이전 호환성)
+      // cropRatio가 없으면 현재 화면 크기 기준으로 계산 (이전 호환성)
+      // 픽셀(px) 단위의 crop 정보를 퍼센트(%)로 변환
       cropRatio = {
         x: currentCompletedCrop.x / displayedWidth,
         y: currentCompletedCrop.y / displayedHeight,
@@ -971,8 +999,15 @@ export default function Home() {
 
           const data = await response.json();
           if (data.extracted_text && data.extracted_text.trim()) {
-            allResults.push(`[페이지 ${area.pageNumber} - 영역 ${areaIndex + 1}]\n${data.extracted_text}`);
+            const resultText = `[페이지 ${area.pageNumber} - 영역 ${areaIndex + 1}]\n${data.extracted_text}`;
+            allResults.push(resultText);
             processedPages.add(area.pageNumber); // 실제 처리된 페이지 번호 추가
+            
+            // 즉시 결과 업데이트 - 페이지별로 바로바로 표시
+            setOcrResult(allResults.join('\n\n---\n\n'));
+            setCroppedPreviews(new Map(newPreviews));
+            setProcessedAreasCount(allResults.length);
+            setProcessedPagesSet(new Set(processedPages));
           }
         } else {
           // 이미지 파일 처리
@@ -1045,15 +1080,21 @@ export default function Home() {
 
         const data = await response.json();
           if (data.extracted_text && data.extracted_text.trim()) {
-            allResults.push(`[영역 ${areaIndex + 1}]\n${data.extracted_text}`);
+            const resultText = `[영역 ${areaIndex + 1}]\n${data.extracted_text}`;
+            allResults.push(resultText);
             // 이미지 파일인 경우 페이지 1로 간주
             processedPages.add(1);
+            
+            // 즉시 결과 업데이트 - 영역별로 바로바로 표시
+            setOcrResult(allResults.join('\n\n---\n\n'));
+            setCroppedPreviews(new Map(newPreviews));
+            setProcessedAreasCount(allResults.length);
+            setProcessedPagesSet(new Set(processedPages));
           }
         }
       }
 
-      // 모든 영역의 결과를 합침
-      setOcrResult(allResults.join('\n\n---\n\n'));
+      // 최종 결과 업데이트 (모든 영역 처리 완료 후)
       setCroppedPreviews(newPreviews);
       setProcessedAreasCount(allResults.length); // 실제 처리된 영역 수 저장
       setProcessedPagesSet(processedPages); // 실제 처리된 페이지 Set 저장
@@ -1104,7 +1145,7 @@ export default function Home() {
 
   // Landing State: 파일이 없을 때
   if (!file && !imageSrc) {
-    return (
+  return (
       <>
         <LandingState onFileSelect={handleFileSelect} fileInputRef={fileInputRef} />
         <LoginModal
@@ -1206,7 +1247,7 @@ export default function Home() {
             {/* Scrollable Canvas Area - 이미지가 한 화면에 다 보이도록 */}
             <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-auto min-h-0">
               {imageSrc ? (
-              <div className="relative w-full h-full flex items-center justify-center">
+              <div className="relative w-fit h-fit mx-auto">
                 <ReactCrop
                   crop={currentCrop}
                   onChange={(_, percentCrop) => setCurrentCrop(percentCrop)}
@@ -1220,7 +1261,7 @@ export default function Home() {
                     ref={imgRef}
                     src={imageSrc}
                     alt="Uploaded"
-                    className="rounded-lg shadow-lg"
+                    className="rounded-lg shadow-lg block max-w-full"
                     width={isPdf && pdfCanvases[currentPage - 1] ? pdfCanvases[currentPage - 1].width : undefined}
                     height={isPdf && pdfCanvases[currentPage - 1] ? pdfCanvases[currentPage - 1].height : undefined}
                     style={{ 
@@ -1234,8 +1275,8 @@ export default function Home() {
                         width: 'auto',
                         height: 'auto',
                       }),
-                      maxWidth: 'none',
-                      maxHeight: 'none'
+                      maxWidth: '100%',
+                      maxHeight: '100%'
                     }}
                     onLoad={(e) => {
                       // 이미지 로드 후 실제 렌더링 크기 확인
@@ -1249,6 +1290,7 @@ export default function Home() {
                   />
                 </ReactCrop>
                 {/* 저장된 크롭 영역들을 오버레이로 표시 - 다중 크롭 지원 */}
+                {/* 이 div들은 위쪽의 relative 부모를 기준으로 좌표를 잡습니다 */}
                 {imgRef.current && getCurrentPageCropAreas().map((area, index) => {
                   const isEditing = editingAreaId === area.id;
                   
@@ -1267,9 +1309,10 @@ export default function Home() {
                     heightPercent = area.cropPercent.height;
                   } else {
                     // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
-                    // 현재 화면 크기 기준으로 % 계산
-                    const displayedWidth = imgRef.current!.clientWidth || imgRef.current!.getBoundingClientRect().width;
-                    const displayedHeight = imgRef.current!.clientHeight || imgRef.current!.getBoundingClientRect().height;
+                    // 현재 화면에 보이는 크기 기준으로 % 계산 (getBoundingClientRect 사용)
+                    const rect = imgRef.current!.getBoundingClientRect();
+                    const displayedWidth = rect.width;
+                    const displayedHeight = rect.height;
                     leftPercent = (area.completedCrop.x / displayedWidth) * 100;
                     topPercent = (area.completedCrop.y / displayedHeight) * 100;
                     widthPercent = (area.completedCrop.width / displayedWidth) * 100;

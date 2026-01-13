@@ -44,6 +44,16 @@ class OCRRecord(Base):
     page_number = Column(Integer, nullable=True)  # PDF 페이지 번호 (이미지인 경우 None)
 
 
+class Prompt(Base):
+    __tablename__ = "prompts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    prompt = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

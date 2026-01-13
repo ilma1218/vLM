@@ -13,8 +13,10 @@ import tempfile
 import os
 from pathlib import Path
 from PIL import Image
-from database import init_db, get_db, OCRRecord
+from database import init_db, get_db, OCRRecord, Prompt
 from datetime import datetime
+from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI(title="Region-Specific OCR Service")
 
@@ -869,6 +871,88 @@ async def convert_ppt_to_pdf(file: UploadFile = File(...)):
             status_code=500,
             detail=f"PPT conversion error: {safe_error[:200]}"
         )
+
+
+# 프롬프트 관련 Pydantic 모델
+class PromptCreate(BaseModel):
+    name: str
+    prompt: str
+
+
+class PromptUpdate(BaseModel):
+    name: Optional[str] = None
+    prompt: Optional[str] = None
+
+
+class PromptResponse(BaseModel):
+    id: int
+    name: str
+    prompt: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# 프롬프트 CRUD API
+@app.post("/prompts", response_model=PromptResponse)
+async def create_prompt(prompt_data: PromptCreate, db: Session = Depends(get_db)):
+    """프롬프트 생성"""
+    db_prompt = Prompt(
+        name=prompt_data.name,
+        prompt=prompt_data.prompt
+    )
+    db.add(db_prompt)
+    db.commit()
+    db.refresh(db_prompt)
+    return db_prompt
+
+
+@app.get("/prompts", response_model=List[PromptResponse])
+async def get_prompts(db: Session = Depends(get_db)):
+    """모든 프롬프트 조회 (최신순)"""
+    prompts = db.query(Prompt).order_by(Prompt.created_at.desc()).all()
+    return prompts
+
+
+@app.get("/prompts/{prompt_id}", response_model=PromptResponse)
+async def get_prompt(prompt_id: int, db: Session = Depends(get_db)):
+    """특정 프롬프트 조회"""
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return prompt
+
+
+@app.put("/prompts/{prompt_id}", response_model=PromptResponse)
+async def update_prompt(prompt_id: int, prompt_data: PromptUpdate, db: Session = Depends(get_db)):
+    """프롬프트 수정"""
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    
+    if prompt_data.name is not None:
+        prompt.name = prompt_data.name
+    if prompt_data.prompt is not None:
+        prompt.prompt = prompt_data.prompt
+    prompt.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(prompt)
+    return prompt
+
+
+@app.delete("/prompts/{prompt_id}")
+async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
+    """프롬프트 삭제"""
+    prompt = db.query(Prompt).filter(Prompt.id == prompt_id).first()
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    
+    db.delete(prompt)
+    db.commit()
+    return {"message": "Prompt deleted successfully"}
 
 
 @app.get("/")
