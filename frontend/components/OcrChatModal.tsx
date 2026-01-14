@@ -207,7 +207,7 @@ export function OcrChatModal(props: {
                 }
               }}
               placeholder="예: 이 문서의 총액은 얼마야?"
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
               disabled={isSending}
             />
             <button
@@ -220,9 +220,7 @@ export function OcrChatModal(props: {
             </button>
           </div>
 
-          <div className="mt-2 text-xs text-gray-500">
-            모델: <span className="font-medium">Qwen2.5-VL 7B</span> · 컨텍스트: 이 파일의 OCR 텍스트
-          </div>
+          <div className="mt-2 text-xs text-gray-500" />
         </div>
       </div>
     </div>
