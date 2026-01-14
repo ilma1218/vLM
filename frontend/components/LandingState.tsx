@@ -21,9 +21,10 @@ interface FileGroup {
 interface LandingStateProps {
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   fileInputRef: React.RefObject<HTMLInputElement>;
+  ocrMode?: 'standard' | 'advanced';
 }
 
-export default function LandingState({ onFileSelect, fileInputRef }: LandingStateProps) {
+export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'standard' }: LandingStateProps) {
   const { t } = useLanguage();
   const [recentFiles, setRecentFiles] = useState<FileGroup[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -113,6 +114,7 @@ export default function LandingState({ onFileSelect, fileInputRef }: LandingStat
                 onChange={onFileSelect}
                 className="hidden"
                 id="file-upload-landing"
+                multiple={ocrMode === 'advanced'}
               />
               <label
                 htmlFor="file-upload-landing"

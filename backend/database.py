@@ -54,6 +54,16 @@ class Prompt(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ExtractKeys(Base):
+    __tablename__ = "extract_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    keys = Column(String, nullable=False)  # JSON string array: ["key1", "key2", ...]
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

@@ -1,9 +1,9 @@
 /**
  * Simple i18n system without external dependencies
- * Supports Korean (KO) and English (EN)
+ * Supports Korean (KO), English (EN), Japanese (JA), Chinese Simplified (ZH-CN), Spanish (ES)
  */
 
-export type Language = 'ko' | 'en';
+export type Language = 'ko' | 'en' | 'ja' | 'zh-CN' | 'es';
 
 const translations = {
   ko: {
@@ -94,6 +94,24 @@ const translations = {
         pdfNote: 'PDF: 모든 페이지에서 동일한 영역이 추출됩니다',
       },
       rightInspector: {
+        mode: {
+          standard: '일반 (Text)',
+          advanced: '고급 (Data)',
+          language: '언어 선택',
+          standardDescription: '기본 시스템 프롬프트가 자동으로 적용됩니다. 이미지의 모든 텍스트를 줄바꿈을 유지하여 추출합니다.',
+          extractKeys: '추출할 항목 (Keys)',
+          keyPlaceholder: '항목 입력 후 Enter',
+          keyHint: '추출하고 싶은 항목을 입력하고 Enter를 누르세요. 예: 대표자명, 설립일, 매출액',
+          presets: '자주 쓰는 양식',
+          advancedDescription: '입력한 키워드들을 기반으로 JSON 포맷으로 추출됩니다.',
+          saveKeys: '저장',
+          savedKeys: '저장된 추출 항목',
+          noSavedKeys: '저장된 추출 항목이 없습니다.',
+          saveKeysDialog: '추출 항목을 저장하시겠습니까?',
+          keysName: '이름 (선택사항)',
+          autoCollectFullPage: '페이지 전체 자동수집',
+          autoCollectFullPageDescription: '체크하면 영역 지정 없이 전체 페이지에서 key:value를 자동으로 추출합니다.',
+        },
         prompt: {
           title: '커스텀 프롬프트',
           toggle: '프롬프트 표시/숨기기',
@@ -105,6 +123,7 @@ const translations = {
           delete: '삭제',
           saveDialog: '프롬프트를 저장하시겠습니까?',
           promptName: '프롬프트 이름 (선택사항)',
+          advancedCustom: '고급: 커스텀 프롬프트 직접 입력',
         },
         results: {
           title: 'OCR 결과',
@@ -119,7 +138,9 @@ const translations = {
         },
         actions: {
           runOCR: 'OCR 실행',
-          saveResult: '결과 저장',
+          saveResult: '저장',
+          saveSuccess: '저장되었습니다. 히스토리에서 확인할 수 있습니다.',
+          clearResult: '결과 초기화',
           processing: '처리 중...',
           progress: '진행 상황',
         },
@@ -421,6 +442,24 @@ const translations = {
         pdfNote: 'PDF: The same area will be extracted from all pages',
       },
       rightInspector: {
+        mode: {
+          standard: 'Standard (Text)',
+          advanced: 'Advanced (Data)',
+          language: 'Language Selection',
+          standardDescription: 'Default system prompt will be applied automatically. Extracts all text from the image while preserving line breaks.',
+          extractKeys: 'Items to Extract (Keys)',
+          keyPlaceholder: 'Enter item and press Enter',
+          keyHint: 'Enter items you want to extract and press Enter. Example: CEO name, Establishment date, Revenue',
+          presets: 'Common Templates',
+          advancedDescription: 'Items will be extracted in JSON format based on the keywords you entered.',
+          saveKeys: 'Save',
+          savedKeys: 'Saved Extract Keys',
+          noSavedKeys: 'No saved extract keys.',
+          saveKeysDialog: 'Save extract keys?',
+          keysName: 'Name (Optional)',
+          autoCollectFullPage: 'Auto Collect Full Page',
+          autoCollectFullPageDescription: 'When checked, automatically extracts key:value from the entire page without area selection.',
+        },
         prompt: {
           title: 'Custom Prompt',
           toggle: 'Show/Hide Prompt',
@@ -432,6 +471,7 @@ const translations = {
           delete: 'Delete',
           saveDialog: 'Save this prompt?',
           promptName: 'Prompt Name (Optional)',
+          advancedCustom: 'Advanced: Enter Custom Prompt Directly',
         },
         results: {
           title: 'OCR Results',
@@ -446,7 +486,9 @@ const translations = {
         },
         actions: {
           runOCR: 'Run OCR',
-          saveResult: 'Save Result',
+          saveResult: 'Save',
+          saveSuccess: 'Saved. You can check it in history.',
+          clearResult: 'Clear Result',
           processing: 'Processing...',
           progress: 'Progress',
         },
@@ -660,6 +702,1050 @@ const translations = {
       },
     },
   },
+  ja: {
+    // Navigation
+    nav: {
+      home: 'ホーム',
+      pricing: '料金プラン',
+      history: '履歴',
+      ocrService: 'IO-N;LINGO OCR',
+    },
+    // Landing Page
+    landing: {
+      title: 'IO-N;LINGO OCR',
+      subtitle: '画像とPDFから特定の領域のテキストを正確に抽出',
+      dragDrop: 'ファイルをドラッグ＆ドロップまたはクリックしてアップロード',
+      uploadButton: 'ファイルを選択',
+      supportedFormats: '対応形式: 画像 (JPG, PNG), PDF',
+      features: {
+        multiRegion: {
+          title: '複数領域選択',
+          description: '1つのファイルから複数の領域を選択して同時にOCRを実行',
+        },
+        pdfSupport: {
+          title: 'PDF, HWP, HWPX, PPT対応',
+          description: 'PDF, HWP, HWPX, PPTの全ページから同じ領域またはページごとに異なる領域を抽出',
+        },
+        customPrompts: {
+          title: 'カスタムプロンプト',
+          description: 'OCR精度を向上させるためのユーザー定義プロンプト対応',
+        },
+      },
+      roiCalculator: {
+        title: '時間節約計算機',
+        description: '抽出項目数 × 2分 / 60',
+        itemsLabel: '抽出項目数',
+        timeSaved: '節約時間',
+        minutes: '分',
+      },
+      statistics: {
+        title: '最近の節約状況',
+        records: '記録',
+        saved: '節約',
+        won: '円',
+      },
+      calculator: {
+        title: '予想時間節約計算機',
+        pages: '予想ページ数',
+        areas: '領域数',
+        keyValuePairs: 'おおよそのKey:Value件数',
+        timeSaved: '予想節約時間',
+        moneySaved: '予想節約金額',
+        minutes: '分',
+        formula: '計算式: ページ数 × 領域数 × Key:Value件数 × 1分 (時給基準)',
+      },
+      caseStudies: {
+        title: 'ユーザー利用事例',
+        subtitle: 'IO-VISION OCRを使用した実際のユーザーが達成した成果',
+        cases: {
+          case1: {
+            title: '法務文書処理自動化',
+            company: '法律事務所A',
+            description: '契約書と証憑書類から重要情報を自動抽出し、文書レビュー時間を80%短縮しました。',
+            metrics: '月500件処理、時間節約40時間',
+          },
+          case2: {
+            title: '会計帳簿データ入力',
+            company: '中小企業B',
+            description: '税務計算書と領収書の金額、日付、取引先情報を自動抽出し、会計業務効率を大幅に向上させました。',
+            metrics: '月1,200件処理、人員削減2名',
+          },
+          case3: {
+            title: '医療記録デジタル化',
+            company: '病院C',
+            description: '紙のチャートをスキャンして患者情報と診断内容を自動抽出し、電子カルテシステム構築に活用しました。',
+            metrics: '月3,000件処理、デジタル化完了',
+          },
+        },
+      },
+    },
+    // Workspace
+    workspace: {
+      leftSidebar: {
+        title: 'ページ',
+        thumbnail: 'ページ',
+      },
+      centerCanvas: {
+        selectArea: 'ドラッグしてクロップする領域を選択してください',
+        pdfNote: 'PDF: すべてのページから同じ領域が抽出されます',
+      },
+      rightInspector: {
+        mode: {
+          standard: '標準 (Text)',
+          advanced: '高度 (Data)',
+          language: '言語選択',
+          standardDescription: 'デフォルトシステムプロンプトが自動的に適用されます。改行を維持しながら画像からすべてのテキストを抽出します。',
+          extractKeys: '抽出項目 (Keys)',
+          keyPlaceholder: '項目を入力してEnter',
+          keyHint: '抽出したい項目を入力してEnterを押してください。例: 代表者名、設立日、売上高',
+          presets: 'よく使うフォーム',
+          advancedDescription: '入力したキーワードに基づいてJSON形式で抽出されます。',
+          saveKeys: '保存',
+          savedKeys: '保存された抽出項目',
+          noSavedKeys: '保存された抽出項目がありません。',
+          saveKeysDialog: '抽出項目を保存しますか？',
+          keysName: '名前 (オプション)',
+          autoCollectFullPage: 'ページ全体自動収集',
+          autoCollectFullPageDescription: 'チェックすると、領域指定なしでページ全体からkey:valueを自動抽出します。',
+        },
+        prompt: {
+          title: 'カスタムプロンプト',
+          toggle: 'プロンプト表示/非表示',
+          placeholder: 'プロンプトを入力してください...',
+          save: '保存',
+          cancel: 'キャンセル',
+          savedPrompts: '保存されたプロンプト',
+          load: '読み込み',
+          delete: '削除',
+          saveDialog: 'このプロンプトを保存しますか？',
+          promptName: 'プロンプト名 (オプション)',
+          advancedCustom: '高度: カスタムプロンプトを直接入力',
+        },
+        results: {
+          title: 'OCR結果',
+          rawText: '元のテキスト',
+          structured: '構造化データ',
+          noResults: 'まだ結果がありません。OCRを実行してください。',
+          timeSaved: '節約時間',
+          moneySaved: '節約金額',
+          minutes: '分',
+          won: '円',
+          calculationNote: '計算: 領域数 × ページ数 × 1分 × 時給10,320円',
+        },
+        actions: {
+          runOCR: 'OCR実行',
+          saveResult: '保存',
+          saveSuccess: '保存されました。履歴で確認できます。',
+          clearResult: '結果をクリア',
+          processing: '処理中...',
+          progress: '進行状況',
+        },
+      },
+      pageNavigation: {
+        previous: '前へ',
+        next: '次へ',
+        current: 'ページ',
+        of: '/',
+        ocrInProgress: '(OCR進行中...)',
+      },
+    },
+    // Crop Area Management
+    crop: {
+      add: '領域を追加',
+      update: '領域を更新',
+      delete: '領域を削除',
+      cancel: 'キャンセル',
+      cropComplete: '領域クロップ完了',
+      addQuestion: '追加しますか？',
+      updateQuestion: '更新しますか？',
+      areaSize: 'クロップ領域',
+      selectedAreas: '選択された領域',
+      currentPageAreas: 'ページ領域',
+      totalAreas: '合計',
+      areas: '個',
+      noAreas: '追加された領域がありません。ドラッグして領域を選択してください。',
+      deleteAll: 'すべて削除',
+      edit: '編集',
+    },
+    // File Upload
+    upload: {
+      title: 'ファイルアップロード (画像またはPDF)',
+      processing: 'ファイル処理中...',
+      progress: '進行率',
+      error: 'ファイル読み込み中にエラーが発生しました。',
+      unsupportedFormat: 'サポートされていないファイル形式です。画像(jpg, png)またはPDFファイルをアップロードしてください。',
+      processingError: 'ファイル処理中にエラーが発生しました。',
+    },
+    // OCR Results
+    ocr: {
+      extractedText: '抽出されたテキスト',
+      croppedPreview: 'クロップ領域プレビュー',
+      noText: '(空のテキスト)',
+      region: '領域',
+      page: 'ページ',
+    },
+    // Common
+    common: {
+      reset: 'リセット',
+      save: '保存',
+      cancel: 'キャンセル',
+      delete: '削除',
+      edit: '編集',
+      close: '閉じる',
+      loading: '読み込み中...',
+      error: 'エラー',
+      success: '成功',
+    },
+    // Auth
+    auth: {
+      login: {
+        title: 'ログイン',
+        noAccount: 'アカウントをお持ちでないですか？',
+        signUpLink: 'アカウントを作成',
+        button: 'ログイン',
+        forgotPassword: 'パスワードをお忘れですか？',
+      },
+      signUp: {
+        title: 'アカウントを作成',
+        haveAccount: '既にアカウントをお持ちですか？',
+        loginLink: 'ログイン',
+        button: 'サインアップ',
+      },
+      social: {
+        google: 'Googleで続行',
+        facebook: 'Facebookで続行',
+        microsoft: 'Microsoftで続行',
+      },
+      separator: 'または',
+      email: 'メール',
+      password: 'パスワード',
+      logout: 'ログアウト',
+    },
+    // Errors
+    errors: {
+      noImage: '画像を選択してください。',
+      noCropArea: '少なくとも1つのクロップ領域を追加してください。',
+      ocrFailed: 'OCR処理に失敗しました。',
+      processingError: 'OCR処理中にエラーが発生しました。',
+    },
+    // Pricing
+    pricing: {
+      title: '料金プラン',
+      subtitle: 'あなたのニーズに合うプランを選択してください',
+      mostPopular: '人気',
+      plans: {
+        free: {
+          name: 'Free',
+          subtitle: 'トライアル',
+          target: '領域を手動で指定して抽出します。(手動、不便、しかし正確)',
+          price: '₩0',
+          period: '/ 月',
+          button: '無料で始める',
+          features: {
+            limit: '1日1件制限',
+            pages: '文書あたり3ページ',
+            areas: 'ページあたり1個',
+            extraction: '基本Key:Value',
+            storage: '24時間後に削除',
+            speed: 'Standard',
+          },
+        },
+        payPerUse: {
+          name: 'Pay-per-Use',
+          subtitle: '1件あたり支払い',
+          target: '領域を手動で指定して抽出します。(手動、不便、しかし正確)',
+          price: '₩500',
+          period: '/ 件',
+          button: '購入',
+          features: {
+            limit: '1件あたり支払い',
+            pages: '文書あたり10ページ',
+            areas: 'ページあたり5個',
+            extraction: '基本Key:Value',
+            storage: '7日間保管',
+            speed: 'Standard',
+          },
+        },
+        pro: {
+          name: 'Pro',
+          subtitle: 'サブスクリプション',
+          target: 'アップロードするだけ。AIが自動的に領域を見つけて値を抽出します。(自動、便利、高解像度対応)',
+          price: '₩29,000',
+          period: '/ 月',
+          button: '無料トライアル開始',
+          features: {
+            limit: '月300件 (Credits)',
+            pages: '文書あたり50ページ',
+            areas: 'ページあたり無制限',
+            extraction: '高度なプロンプト対応',
+            storage: '1年間保管',
+            speed: 'Fast (GPU優先割り当て)',
+          },
+        },
+        flex: {
+          name: 'Flex',
+          subtitle: '従量課金',
+          target: '時々使用するユーザー',
+          price: '₩50,000',
+          period: '/ 500 Credits',
+          validity: '有効期間1年',
+          button: 'Creditsを購入',
+          features: {
+            limit: '制限なし',
+            pages: '制限なし',
+            areas: 'ページあたり無制限',
+            extraction: '高度なプロンプト対応',
+            storage: '1年間保管',
+            speed: 'Fast',
+          },
+        },
+        enterprise: {
+          name: 'Enterprise',
+          subtitle: 'ソリューション',
+          target: '企業、官公庁、大量処理',
+          price: '別途お問い合わせ',
+          button: '営業チームにお問い合わせ',
+          features: {
+            limit: '無制限 / オンプレミス',
+            pages: '制限なし',
+            areas: '無制限',
+            extraction: 'カスタムモデルチューニング',
+            storage: '永続保管 (自社サーバー)',
+            speed: 'Dedicated (専用)',
+          },
+        },
+      },
+      features: {
+        limit: '提供量',
+        pages: 'ページ制限',
+        areas: '領域(Crop)',
+        extraction: '抽出項目',
+        storage: '保管',
+        speed: '速度',
+      },
+      usageGuide: {
+        title: '無料/有料プラン',
+        freePlan: {
+          title: '無料プラン',
+          description: '月1回の無料OCR処理1件が提供されます。',
+          note: '無料プランを使用したOCRは基本Key:Value抽出のみ可能です。',
+        },
+        paidPlan: {
+          title: '有料プラン',
+          description: 'Pay-per-Use: 1件あたり₩500、Pro: 月₩29,000、Flex: ₩50,000 / 500 Credits',
+          note: '有料プランを使用したOCRは高度なプロンプト対応および詳細な抽出結果を確認できます。',
+        },
+        deductionCriteria: {
+          title: 'Credits差し引き基準',
+          item1: 'OCR処理1件あたりCredits 1個が差し引かれます。',
+          item2: '購入したCreditsは購入当日から1年間使用でき、使用期間が過ぎると自動的に失効します。',
+          item3: '処理失敗した文書はCreditsから差し引かれません。',
+        },
+        refundPolicy: {
+          title: '返金規約',
+          item1: 'Credits未使用時は購入日から7日以内に契約を撤回できます。',
+          item2: '既にサービスを使用した場合、前払い金額から使用回数に該当する利用金額を差し引いて返金します。',
+          item3: '支払いに関するお問い合わせはカスタマーサービスにお問い合わせください。',
+        },
+      },
+    },
+  },
+  'zh-CN': {
+    // Navigation
+    nav: {
+      home: '首页',
+      pricing: '价格',
+      history: '历史',
+      ocrService: 'IO-N;LINGO OCR',
+    },
+    // Landing Page
+    landing: {
+      title: 'IO-N;LINGO OCR',
+      subtitle: '从图像和PDF中精确提取特定区域的文本',
+      dragDrop: '拖放文件或点击上传',
+      uploadButton: '选择文件',
+      supportedFormats: '支持格式: 图像 (JPG, PNG), PDF',
+      features: {
+        multiRegion: {
+          title: '多区域选择',
+          description: '从单个文件中选择多个区域并同时执行OCR',
+        },
+        pdfSupport: {
+          title: 'PDF, HWP, HWPX, PPT支持',
+          description: '从PDF, HWP, HWPX, PPT的所有页面提取相同或不同的区域',
+        },
+        customPrompts: {
+          title: '自定义提示',
+          description: '支持用户定义的提示以提高OCR准确性',
+        },
+      },
+      roiCalculator: {
+        title: '时间节省计算器',
+        description: '提取项目数 × 2分钟 / 60',
+        itemsLabel: '提取项目数',
+        timeSaved: '节省时间',
+        minutes: '分钟',
+      },
+      statistics: {
+        title: '最近节省情况',
+        records: '记录',
+        saved: '节省',
+        won: '元',
+      },
+      calculator: {
+        title: '预计时间节省计算器',
+        pages: '预计页数',
+        areas: '区域数',
+        keyValuePairs: '大约Key:Value对数',
+        timeSaved: '预计节省时间',
+        moneySaved: '预计节省金额',
+        minutes: '分钟',
+        formula: '计算公式: 页数 × 区域数 × Key:Value对数 × 1分钟 (时薪基准)',
+      },
+      caseStudies: {
+        title: '用户使用案例',
+        subtitle: 'IO-VISION OCR真实用户取得的成果',
+        cases: {
+          case1: {
+            title: '法律文件处理自动化',
+            company: '律师事务所A',
+            description: '自动从合同和证明文件中提取关键信息，将文件审查时间缩短80%。',
+            metrics: '每月处理500件，节省时间40小时',
+          },
+          case2: {
+            title: '会计账簿数据录入',
+            company: '中小企业B',
+            description: '自动提取发票和收据的金额、日期、交易方信息，大幅提高会计工作效率。',
+            metrics: '每月处理1,200件，减少人员2名',
+          },
+          case3: {
+            title: '医疗记录数字化',
+            company: '医院C',
+            description: '扫描纸质图表，自动提取患者信息和诊断内容，用于电子病历系统建设。',
+            metrics: '每月处理3,000件，数字化完成',
+          },
+        },
+      },
+    },
+    // Workspace
+    workspace: {
+      leftSidebar: {
+        title: '页面',
+        thumbnail: '页面',
+      },
+      centerCanvas: {
+        selectArea: '拖动选择要裁剪的区域',
+        pdfNote: 'PDF: 将从所有页面提取相同的区域',
+      },
+      rightInspector: {
+        mode: {
+          standard: '标准 (Text)',
+          advanced: '高级 (Data)',
+          language: '语言选择',
+          standardDescription: '将自动应用默认系统提示。在保持换行的同时从图像中提取所有文本。',
+          extractKeys: '提取项目 (Keys)',
+          keyPlaceholder: '输入项目后按Enter',
+          keyHint: '输入要提取的项目并按Enter。例如: 代表姓名、成立日期、销售额',
+          presets: '常用表单',
+          advancedDescription: '将根据输入的关键字以JSON格式提取。',
+          saveKeys: '保存',
+          savedKeys: '已保存的提取项目',
+          noSavedKeys: '没有已保存的提取项目。',
+          saveKeysDialog: '是否保存提取项目？',
+          keysName: '名称 (可选)',
+          autoCollectFullPage: '页面全自动收集',
+          autoCollectFullPageDescription: '勾选后，无需指定区域即可从整个页面自动提取key:value。',
+        },
+        prompt: {
+          title: '自定义提示',
+          toggle: '显示/隐藏提示',
+          placeholder: '请输入提示...',
+          save: '保存',
+          cancel: '取消',
+          savedPrompts: '已保存的提示',
+          load: '加载',
+          delete: '删除',
+          saveDialog: '是否保存此提示？',
+          promptName: '提示名称 (可选)',
+          advancedCustom: '高级: 直接输入自定义提示',
+        },
+        results: {
+          title: 'OCR结果',
+          rawText: '原始文本',
+          structured: '结构化数据',
+          noResults: '还没有结果。请运行OCR。',
+          timeSaved: '节省时间',
+          moneySaved: '节省金额',
+          minutes: '分钟',
+          won: '元',
+          calculationNote: '计算: 区域数 × 页数 × 1分钟 × 时薪10,320元',
+        },
+        actions: {
+          runOCR: '运行OCR',
+          saveResult: '保存',
+          saveSuccess: '已保存。可在历史记录中查看。',
+          clearResult: '清除结果',
+          processing: '处理中...',
+          progress: '进度',
+        },
+      },
+      pageNavigation: {
+        previous: '上一页',
+        next: '下一页',
+        current: '页面',
+        of: '/',
+        ocrInProgress: '(OCR进行中...)',
+      },
+    },
+    // Crop Area Management
+    crop: {
+      add: '添加区域',
+      update: '更新区域',
+      delete: '删除区域',
+      cancel: '取消',
+      cropComplete: '区域裁剪完成',
+      addQuestion: '是否添加？',
+      updateQuestion: '是否更新？',
+      areaSize: '裁剪区域',
+      selectedAreas: '已选区域',
+      currentPageAreas: '页面区域',
+      totalAreas: '总计',
+      areas: '个',
+      noAreas: '没有添加的区域。请拖动选择区域。',
+      deleteAll: '全部删除',
+      edit: '编辑',
+    },
+    // File Upload
+    upload: {
+      title: '文件上传 (图像或PDF)',
+      processing: '正在处理文件...',
+      progress: '进度',
+      error: '读取文件时发生错误。',
+      unsupportedFormat: '不支持的文件格式。请上传图像(jpg, png)或PDF文件。',
+      processingError: '处理文件时发生错误。',
+    },
+    // OCR Results
+    ocr: {
+      extractedText: '提取的文本',
+      croppedPreview: '裁剪区域预览',
+      noText: '(空文本)',
+      region: '区域',
+      page: '页面',
+    },
+    // Common
+    common: {
+      reset: '重置',
+      save: '保存',
+      cancel: '取消',
+      delete: '删除',
+      edit: '编辑',
+      close: '关闭',
+      loading: '加载中...',
+      error: '错误',
+      success: '成功',
+    },
+    // Auth
+    auth: {
+      login: {
+        title: '登录',
+        noAccount: '没有账户？',
+        signUpLink: '创建账户',
+        button: '登录',
+        forgotPassword: '忘记密码？',
+      },
+      signUp: {
+        title: '创建账户',
+        haveAccount: '已有账户？',
+        loginLink: '登录',
+        button: '注册',
+      },
+      social: {
+        google: '使用Google继续',
+        facebook: '使用Facebook继续',
+        microsoft: '使用Microsoft继续',
+      },
+      separator: '或',
+      email: '电子邮件',
+      password: '密码',
+      logout: '登出',
+    },
+    // Errors
+    errors: {
+      noImage: '请选择图像。',
+      noCropArea: '请至少添加一个裁剪区域。',
+      ocrFailed: 'OCR处理失败。',
+      processingError: 'OCR处理过程中发生错误。',
+    },
+    // Pricing
+    pricing: {
+      title: '价格',
+      subtitle: '选择适合您需求的计划',
+      mostPopular: '最受欢迎',
+      plans: {
+        free: {
+          name: 'Free',
+          subtitle: '试用版',
+          target: '手动指定区域进行提取。(手动、不便、但准确)',
+          price: '₩0',
+          period: '/ 月',
+          button: '免费开始',
+          features: {
+            limit: '每天1次限制',
+            pages: '每文档3页',
+            areas: '每页1个',
+            extraction: '基本Key:Value',
+            storage: '24小时后删除',
+            speed: 'Standard',
+          },
+        },
+        payPerUse: {
+          name: 'Pay-per-Use',
+          subtitle: '按次付费',
+          target: '手动指定区域进行提取。(手动、不便、但准确)',
+          price: '₩500',
+          period: '/ 次',
+          button: '购买',
+          features: {
+            limit: '按次付费',
+            pages: '每文档10页',
+            areas: '每页5个',
+            extraction: '基本Key:Value',
+            storage: '保存7天',
+            speed: 'Standard',
+          },
+        },
+        pro: {
+          name: 'Pro',
+          subtitle: '订阅型',
+          target: '只需上传。AI会自动查找区域并提取值。(自动、方便、支持高分辨率)',
+          price: '₩29,000',
+          period: '/ 月',
+          button: '开始免费试用',
+          features: {
+            limit: '每月300次 (Credits)',
+            pages: '每文档50页',
+            areas: '每页无限制',
+            extraction: '高级提示支持',
+            storage: '保存1年',
+            speed: 'Fast (GPU优先分配)',
+          },
+        },
+        flex: {
+          name: 'Flex',
+          subtitle: '充值型/按量计费',
+          target: '偶尔使用的用户',
+          price: '₩50,000',
+          period: '/ 500 Credits',
+          validity: '有效期1年',
+          button: '购买Credits',
+          features: {
+            limit: '无限制',
+            pages: '无限制',
+            areas: '每页无限制',
+            extraction: '高级提示支持',
+            storage: '保存1年',
+            speed: 'Fast',
+          },
+        },
+        enterprise: {
+          name: 'Enterprise',
+          subtitle: '解决方案',
+          target: '企业、政府机关、批量处理',
+          price: '单独咨询',
+          button: '联系销售团队',
+          features: {
+            limit: '无限制 / 本地部署',
+            pages: '无限制',
+            areas: '无限制',
+            extraction: '自定义模型调优',
+            storage: '永久保存 (自有服务器)',
+            speed: 'Dedicated (专用)',
+          },
+        },
+      },
+      features: {
+        limit: '提供量',
+        pages: '页面限制',
+        areas: '区域(Crop)',
+        extraction: '提取项目',
+        storage: '保存',
+        speed: '速度',
+      },
+      usageGuide: {
+        title: '免费/付费计划',
+        freePlan: {
+          title: '免费计划',
+          description: '每月提供1次免费OCR处理。',
+          note: '使用免费计划的OCR仅支持基本Key:Value提取。',
+        },
+        paidPlan: {
+          title: '付费计划',
+          description: 'Pay-per-Use: 每次₩500，Pro: 每月₩29,000，Flex: ₩50,000 / 500 Credits',
+          note: '使用付费计划的OCR支持高级提示和详细的提取结果。',
+        },
+        deductionCriteria: {
+          title: 'Credits扣除标准',
+          item1: '每次OCR处理扣除1个Credits。',
+          item2: '购买的Credits自购买当日起1年内可使用，使用期限过后将自动失效。',
+          item3: '处理失败的文档不会扣除Credits。',
+        },
+        refundPolicy: {
+          title: '退款规定',
+          item1: 'Credits未使用时，可在购买日起7天内撤回合同。',
+          item2: '已使用服务时，将从预付款中扣除使用次数对应的使用金额后退款。',
+          item3: '有关付款的咨询，请联系客服。',
+        },
+      },
+    },
+  },
+  es: {
+    // Navigation
+    nav: {
+      home: 'Inicio',
+      pricing: 'Precios',
+      history: 'Historial',
+      ocrService: 'IO-N;LINGO OCR',
+    },
+    // Landing Page
+    landing: {
+      title: 'IO-N;LINGO OCR',
+      subtitle: 'Extrae texto de regiones específicas en imágenes y PDFs con precisión',
+      dragDrop: 'Arrastra y suelta archivos o haz clic para subir',
+      uploadButton: 'Seleccionar archivo',
+      supportedFormats: 'Formatos soportados: Imágenes (JPG, PNG), PDF',
+      features: {
+        multiRegion: {
+          title: 'Selección Multi-Región',
+          description: 'Selecciona múltiples regiones de un solo archivo y realiza OCR simultáneamente',
+        },
+        pdfSupport: {
+          title: 'Soporte PDF, HWP, HWPX, PPT',
+          description: 'Extrae la misma o diferentes regiones de todas las páginas de PDF, HWP, HWPX, PPT',
+        },
+        customPrompts: {
+          title: 'Prompts Personalizados',
+          description: 'Prompts definidos por el usuario para mejorar la precisión del OCR',
+        },
+      },
+      roiCalculator: {
+        title: 'Calculadora de Ahorro de Tiempo',
+        description: 'Elementos Extraídos × 2 min / 60',
+        itemsLabel: 'Número de Elementos Extraídos',
+        timeSaved: 'Tiempo Ahorrado',
+        minutes: 'minutos',
+      },
+      statistics: {
+        title: 'Ahorros Recientes',
+        records: 'Registros',
+        saved: 'Ahorrado',
+        won: 'EUR',
+      },
+      calculator: {
+        title: 'Calculadora de Ahorro de Tiempo',
+        pages: 'Páginas Esperadas',
+        areas: 'Número de Áreas',
+        keyValuePairs: 'Pares Key:Value Aproximados',
+        timeSaved: 'Tiempo Ahorrado Estimado',
+        moneySaved: 'Dinero Ahorrado Estimado',
+        minutes: 'minutos',
+        formula: 'Fórmula: Páginas × Áreas × Pares Key:Value × 1 min (Basado en Salario por Hora)',
+      },
+      caseStudies: {
+        title: 'Casos de Uso de Usuarios',
+        subtitle: 'Historias de éxito de usuarios reales de IO-VISION OCR',
+        cases: {
+          case1: {
+            title: 'Automatización de Procesamiento de Documentos Legales',
+            company: 'Bufete de Abogados A',
+            description: 'Extrajo automáticamente información clave de contratos y documentos de respaldo, reduciendo el tiempo de revisión de documentos en un 80%.',
+            metrics: '500 documentos/mes, 40 horas ahorradas',
+          },
+          case2: {
+            title: 'Entrada de Datos de Libros Contables',
+            company: 'PYME B',
+            description: 'Extrajo automáticamente montos, fechas e información de proveedores de facturas y recibos, mejorando significativamente la eficiencia contable.',
+            metrics: '1,200 documentos/mes, 2 empleados reducidos',
+          },
+          case3: {
+            title: 'Digitalización de Registros Médicos',
+            company: 'Hospital C',
+            description: 'Escaneó gráficos en papel y extrajo automáticamente información del paciente y detalles de diagnóstico para la construcción del sistema EMR.',
+            metrics: '3,000 documentos/mes, digitalización completada',
+          },
+        },
+      },
+    },
+    // Workspace
+    workspace: {
+      leftSidebar: {
+        title: 'Páginas',
+        thumbnail: 'Página',
+      },
+      centerCanvas: {
+        selectArea: 'Arrastra para seleccionar el área a recortar',
+        pdfNote: 'PDF: Se extraerá la misma área de todas las páginas',
+      },
+      rightInspector: {
+        mode: {
+          standard: 'Estándar (Text)',
+          advanced: 'Avanzado (Data)',
+          language: 'Selección de Idioma',
+          standardDescription: 'Se aplicará automáticamente el prompt del sistema por defecto. Extrae todo el texto de la imagen manteniendo los saltos de línea.',
+          extractKeys: 'Elementos a Extraer (Keys)',
+          keyPlaceholder: 'Ingresa elemento y presiona Enter',
+          keyHint: 'Ingresa los elementos que deseas extraer y presiona Enter. Ejemplo: Nombre del CEO, Fecha de establecimiento, Ingresos',
+          presets: 'Plantillas Comunes',
+          advancedDescription: 'Los elementos se extraerán en formato JSON basado en las palabras clave que ingresaste.',
+          saveKeys: 'Guardar',
+          savedKeys: 'Claves de Extracción Guardadas',
+          noSavedKeys: 'No hay claves de extracción guardadas.',
+          saveKeysDialog: '¿Guardar claves de extracción?',
+          keysName: 'Nombre (Opcional)',
+          autoCollectFullPage: 'Recolección Automática de Página Completa',
+          autoCollectFullPageDescription: 'Cuando está marcado, extrae automáticamente key:value de toda la página sin selección de área.',
+        },
+        prompt: {
+          title: 'Prompt Personalizado',
+          toggle: 'Mostrar/Ocultar Prompt',
+          placeholder: 'Ingresa tu prompt...',
+          save: 'Guardar',
+          cancel: 'Cancelar',
+          savedPrompts: 'Prompts Guardados',
+          load: 'Cargar',
+          delete: 'Eliminar',
+          saveDialog: '¿Guardar este prompt?',
+          promptName: 'Nombre del Prompt (Opcional)',
+          advancedCustom: 'Avanzado: Ingresar Prompt Personalizado Directamente',
+        },
+        results: {
+          title: 'Resultados OCR',
+          rawText: 'Texto Original',
+          structured: 'Datos Estructurados',
+          noResults: 'Aún no hay resultados. Por favor ejecuta OCR.',
+          timeSaved: 'Tiempo Ahorrado',
+          moneySaved: 'Dinero Ahorrado',
+          minutes: 'minutos',
+          won: 'EUR',
+          calculationNote: 'Cálculo: Áreas × Páginas × 1 min × Salario Mínimo 10,320 EUR/hora',
+        },
+        actions: {
+          runOCR: 'Ejecutar OCR',
+          saveResult: 'Guardar',
+          saveSuccess: 'Guardado. Puedes verificarlo en el historial.',
+          clearResult: 'Limpiar Resultado',
+          processing: 'Procesando...',
+          progress: 'Progreso',
+        },
+      },
+      pageNavigation: {
+        previous: 'Anterior',
+        next: 'Siguiente',
+        current: 'Página',
+        of: '/',
+        ocrInProgress: '(OCR en progreso...)',
+      },
+    },
+    // Crop Area Management
+    crop: {
+      add: 'Agregar Área',
+      update: 'Actualizar Área',
+      delete: 'Eliminar Área',
+      cancel: 'Cancelar',
+      cropComplete: 'Área de Recorte Completa',
+      addQuestion: '¿Agregar esta área?',
+      updateQuestion: '¿Actualizar esta área?',
+      areaSize: 'Área de Recorte',
+      selectedAreas: 'Áreas Seleccionadas',
+      currentPageAreas: 'Áreas de Página',
+      totalAreas: 'Total',
+      areas: 'áreas',
+      noAreas: 'No se han agregado áreas. Arrastra para seleccionar un área.',
+      deleteAll: 'Eliminar Todo',
+      edit: 'Editar',
+    },
+    // File Upload
+    upload: {
+      title: 'Subida de Archivo (Imagen o PDF)',
+      processing: 'Procesando archivo...',
+      progress: 'Progreso',
+      error: 'Ocurrió un error al leer el archivo.',
+      unsupportedFormat: 'Formato de archivo no soportado. Por favor sube una imagen (jpg, png) o archivo PDF.',
+      processingError: 'Ocurrió un error al procesar el archivo.',
+    },
+    // OCR Results
+    ocr: {
+      extractedText: 'Texto Extraído',
+      croppedPreview: 'Vista Previa del Área Recortada',
+      noText: '(texto vacío)',
+      region: 'Región',
+      page: 'Página',
+    },
+    // Common
+    common: {
+      reset: 'Restablecer',
+      save: 'Guardar',
+      cancel: 'Cancelar',
+      delete: 'Eliminar',
+      edit: 'Editar',
+      close: 'Cerrar',
+      loading: 'Cargando...',
+      error: 'Error',
+      success: 'Éxito',
+    },
+    // Auth
+    auth: {
+      login: {
+        title: 'Iniciar sesión',
+        noAccount: '¿No tienes una cuenta?',
+        signUpLink: 'Crear cuenta',
+        button: 'Iniciar sesión',
+        forgotPassword: '¿Olvidaste tu contraseña?',
+      },
+      signUp: {
+        title: 'Crear cuenta',
+        haveAccount: '¿Ya tienes una cuenta?',
+        loginLink: 'Iniciar sesión',
+        button: 'Registrarse',
+      },
+      social: {
+        google: 'Continuar con Google',
+        facebook: 'Continuar con Facebook',
+        microsoft: 'Continuar con Microsoft',
+      },
+      separator: 'O',
+      email: 'Correo electrónico',
+      password: 'Contraseña',
+      logout: 'Cerrar sesión',
+    },
+    // Errors
+    errors: {
+      noImage: 'Por favor selecciona una imagen.',
+      noCropArea: 'Por favor agrega al menos un área de recorte.',
+      ocrFailed: 'El procesamiento OCR falló.',
+      processingError: 'Ocurrió un error durante el procesamiento OCR.',
+    },
+    // Pricing
+    pricing: {
+      title: 'Precios',
+      subtitle: 'Elige el plan que se adapte a tus necesidades',
+      mostPopular: 'Más Popular',
+      plans: {
+        free: {
+          name: 'Free',
+          subtitle: 'Prueba',
+          target: 'Especifica manualmente las áreas a extraer. (Manual, Inconveniente, pero Preciso)',
+          price: '₩0',
+          period: '/ mes',
+          button: 'Comenzar',
+          features: {
+            limit: 'Límite de 1 por día',
+            pages: '3 páginas por documento',
+            areas: '1 por página',
+            extraction: 'Key:Value Básico',
+            storage: 'Eliminado después de 24 horas',
+            speed: 'Estándar',
+          },
+        },
+        payPerUse: {
+          name: 'Pay-per-Use',
+          subtitle: 'Pago por uso',
+          target: 'Especifica manualmente las áreas a extraer. (Manual, Inconveniente, pero Preciso)',
+          price: '₩500',
+          period: '/ uso',
+          button: 'Comprar',
+          features: {
+            limit: 'Pago por uso',
+            pages: '10 páginas por documento',
+            areas: '5 por página',
+            extraction: 'Key:Value Básico',
+            storage: 'Almacenamiento de 7 días',
+            speed: 'Estándar',
+          },
+        },
+        pro: {
+          name: 'Pro',
+          subtitle: 'Suscripción',
+          target: 'Solo sube. La IA encuentra automáticamente las áreas y extrae los valores. (Automático, Conveniente, Soporte de Alta Resolución)',
+          price: '₩29,000',
+          period: '/ mes',
+          button: 'Comenzar Prueba Gratuita',
+          features: {
+            limit: '300 por mes (Credits)',
+            pages: '50 páginas por documento',
+            areas: 'Ilimitado por página',
+            extraction: 'Soporte de prompt avanzado',
+            storage: 'Almacenamiento de 1 año',
+            speed: 'Rápido (Prioridad GPU)',
+          },
+        },
+        flex: {
+          name: 'Flex',
+          subtitle: 'Pago por uso',
+          target: 'Usuarios Ocasionales',
+          price: '₩50,000',
+          period: '/ 500 Credits',
+          validity: 'Válido por 1 año',
+          button: 'Comprar Credits',
+          features: {
+            limit: 'Sin límite',
+            pages: 'Sin límite',
+            areas: 'Ilimitado por página',
+            extraction: 'Soporte de prompt avanzado',
+            storage: 'Almacenamiento de 1 año',
+            speed: 'Rápido',
+          },
+        },
+        enterprise: {
+          name: 'Enterprise',
+          subtitle: 'Solución',
+          target: 'Empresa, Gobierno, Procesamiento Masivo',
+          price: 'Personalizado',
+          button: 'Contactar Ventas',
+          features: {
+            limit: 'Ilimitado / On-premise',
+            pages: 'Sin límite',
+            areas: 'Ilimitado',
+            extraction: 'Ajuste de modelo personalizado',
+            storage: 'Almacenamiento permanente (servidor propio)',
+            speed: 'Dedicado',
+          },
+        },
+      },
+      features: {
+        limit: 'Cuota',
+        pages: 'Límite de Páginas',
+        areas: 'Áreas (Crop)',
+        extraction: 'Extracción',
+        storage: 'Almacenamiento',
+        speed: 'Velocidad',
+      },
+      usageGuide: {
+        title: 'Planes Gratuitos/De Pago',
+        freePlan: {
+          title: 'Plan Gratuito',
+          description: 'Se proporciona 1 procesamiento OCR gratuito por mes.',
+          note: 'OCR usando el plan gratuito solo admite extracción básica de Key:Value.',
+        },
+        paidPlan: {
+          title: 'Planes de Pago',
+          description: 'Pay-per-Use: ₩500 por uso, Pro: ₩29,000/mes, Flex: ₩50,000 / 500 Credits',
+          note: 'OCR usando planes de pago admite prompts avanzados y resultados de extracción detallados.',
+        },
+        deductionCriteria: {
+          title: 'Criterios de Deducción de Credits',
+          item1: 'Se deduce 1 Credit por procesamiento OCR.',
+          item2: 'Los Credits comprados se pueden usar durante 1 año desde la fecha de pago y expirarán automáticamente después del período de uso.',
+          item3: 'El procesamiento fallido no deduce Credits.',
+        },
+        refundPolicy: {
+          title: 'Política de Reembolso',
+          item1: 'Los Credits no utilizados se pueden reembolsar dentro de 7 días desde la fecha de pago.',
+          item2: 'Si el servicio ya se ha utilizado, el reembolso se calculará deduciendo el monto correspondiente al número de usos del monto prepagado.',
+          item3: 'Para consultas de pago, por favor contacta al servicio al cliente.',
+        },
+      },
+    },
+  },
 } as const;
 
 // Language context type
@@ -703,7 +1789,7 @@ export function useLanguage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('language') as Language;
-      if (saved && (saved === 'ko' || saved === 'en')) {
+      if (saved && (saved === 'ko' || saved === 'en' || saved === 'ja' || saved === 'zh-CN' || saved === 'es')) {
         globalLanguage = saved;
         setLanguage(saved);
       }
@@ -731,7 +1817,7 @@ export function useLanguage() {
       const handleStorageChange = (e: StorageEvent) => {
         if (e.key === 'language' && e.newValue) {
           const newLang = e.newValue as Language;
-          if (newLang === 'ko' || newLang === 'en') {
+          if (newLang === 'ko' || newLang === 'en' || newLang === 'ja' || newLang === 'zh-CN' || newLang === 'es') {
             globalLanguage = newLang;
             notifyLanguageChange(newLang);
           }

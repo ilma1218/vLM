@@ -13,7 +13,7 @@ import tempfile
 import os
 from pathlib import Path
 from PIL import Image
-from database import init_db, get_db, OCRRecord, Prompt
+from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys
 from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional
@@ -445,25 +445,13 @@ async def ocr_image(
         # 크롭된 이미지를 base64로 인코딩하여 저장
         cropped_image_base64 = base64.b64encode(file_bytes).decode('utf-8')
         
-        # 데이터베이스에 저장
-        ocr_record = OCRRecord(
-            extracted_text=extracted_text,
-            cropped_image=cropped_image_base64,
-            timestamp=datetime.utcnow(),
-            filename=filename,
-            page_number=page_number
-        )
-        db.add(ocr_record)
-        db.commit()
-        db.refresh(ocr_record)
-        
+        # OCR 결과만 반환 (자동 저장하지 않음)
+        # '저장' 버튼을 눌렀을 때만 /history/save 엔드포인트를 통해 저장됨
         return {
-            "id": ocr_record.id,
             "extracted_text": extracted_text,
             "cropped_image": cropped_image_base64,
-            "timestamp": ocr_record.timestamp.isoformat(),
-            "filename": ocr_record.filename,
-            "page_number": ocr_record.page_number
+            "filename": filename,
+            "page_number": page_number
         }
     
     except Exception as e:
@@ -684,6 +672,41 @@ async def delete_multiple_records(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete records: {str(e)}")
+@app.post("/history/save")
+async def save_ocr_result(
+    extracted_text: str = Form(...),
+    cropped_image: str = Form(...),
+    filename: str = Form(...),
+    page_number: int = Form(None),
+    db: Session = Depends(get_db)
+):
+    """
+    OCR 결과를 history에 저장합니다.
+    '저장' 버튼을 눌렀을 때만 호출됩니다.
+    """
+    try:
+        ocr_record = OCRRecord(
+            extracted_text=extracted_text,
+            cropped_image=cropped_image,
+            timestamp=datetime.utcnow(),
+            filename=filename,
+            page_number=page_number
+        )
+        db.add(ocr_record)
+        db.commit()
+        db.refresh(ocr_record)
+        
+        return {
+            "id": ocr_record.id,
+            "extracted_text": ocr_record.extracted_text,
+            "cropped_image": ocr_record.cropped_image,
+            "timestamp": ocr_record.timestamp.isoformat(),
+            "filename": ocr_record.filename,
+            "page_number": ocr_record.page_number
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save OCR result: {str(e)}")
 
 
 @app.delete("/history/file/{filename}")
@@ -953,6 +976,115 @@ async def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
     db.delete(prompt)
     db.commit()
     return {"message": "Prompt deleted successfully"}
+
+
+# 추출 항목(Keys) 관련 Pydantic 모델
+class ExtractKeysCreate(BaseModel):
+    name: str
+    keys: List[str]
+
+
+class ExtractKeysUpdate(BaseModel):
+    name: Optional[str] = None
+    keys: Optional[List[str]] = None
+
+
+class ExtractKeysResponse(BaseModel):
+    id: int
+    name: str
+    keys: List[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# 추출 항목(Keys) CRUD API
+@app.post("/extract-keys", response_model=ExtractKeysResponse)
+async def create_extract_keys(keys_data: ExtractKeysCreate, db: Session = Depends(get_db)):
+    """추출 항목(Keys) 생성"""
+    db_keys = ExtractKeys(
+        name=keys_data.name,
+        keys=json.dumps(keys_data.keys, ensure_ascii=False)
+    )
+    db.add(db_keys)
+    db.commit()
+    db.refresh(db_keys)
+    return {
+        "id": db_keys.id,
+        "name": db_keys.name,
+        "keys": json.loads(db_keys.keys),
+        "created_at": db_keys.created_at,
+        "updated_at": db_keys.updated_at
+    }
+
+
+@app.get("/extract-keys", response_model=List[ExtractKeysResponse])
+async def get_extract_keys(db: Session = Depends(get_db)):
+    """모든 추출 항목(Keys) 조회 (최신순)"""
+    keys_list = db.query(ExtractKeys).order_by(ExtractKeys.created_at.desc()).all()
+    return [
+        {
+            "id": k.id,
+            "name": k.name,
+            "keys": json.loads(k.keys),
+            "created_at": k.created_at,
+            "updated_at": k.updated_at
+        }
+        for k in keys_list
+    ]
+
+
+@app.get("/extract-keys/{keys_id}", response_model=ExtractKeysResponse)
+async def get_extract_key(keys_id: int, db: Session = Depends(get_db)):
+    """특정 추출 항목(Keys) 조회"""
+    keys = db.query(ExtractKeys).filter(ExtractKeys.id == keys_id).first()
+    if not keys:
+        raise HTTPException(status_code=404, detail="ExtractKeys not found")
+    return {
+        "id": keys.id,
+        "name": keys.name,
+        "keys": json.loads(keys.keys),
+        "created_at": keys.created_at,
+        "updated_at": keys.updated_at
+    }
+
+
+@app.put("/extract-keys/{keys_id}", response_model=ExtractKeysResponse)
+async def update_extract_keys(keys_id: int, keys_data: ExtractKeysUpdate, db: Session = Depends(get_db)):
+    """추출 항목(Keys) 수정"""
+    keys = db.query(ExtractKeys).filter(ExtractKeys.id == keys_id).first()
+    if not keys:
+        raise HTTPException(status_code=404, detail="ExtractKeys not found")
+    
+    if keys_data.name is not None:
+        keys.name = keys_data.name
+    if keys_data.keys is not None:
+        keys.keys = json.dumps(keys_data.keys, ensure_ascii=False)
+    keys.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(keys)
+    return {
+        "id": keys.id,
+        "name": keys.name,
+        "keys": json.loads(keys.keys),
+        "created_at": keys.created_at,
+        "updated_at": keys.updated_at
+    }
+
+
+@app.delete("/extract-keys/{keys_id}")
+async def delete_extract_keys(keys_id: int, db: Session = Depends(get_db)):
+    """추출 항목(Keys) 삭제"""
+    keys = db.query(ExtractKeys).filter(ExtractKeys.id == keys_id).first()
+    if not keys:
+        raise HTTPException(status_code=404, detail="ExtractKeys not found")
+    
+    db.delete(keys)
+    db.commit()
+    return {"message": "ExtractKeys deleted successfully"}
 
 
 @app.get("/")
