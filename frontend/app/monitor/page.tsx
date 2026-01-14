@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square, Download } from 'lucide-react';
+import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square, Download, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { OcrChatModal } from '@/components/OcrChatModal';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -41,6 +42,8 @@ export default function MonitorPage() {
   const [isDeletingMultipleFiles, setIsDeletingMultipleFiles] = useState(false);
   const [showAllDownloadMenu, setShowAllDownloadMenu] = useState(false);
   const [showFileDownloadMenu, setShowFileDownloadMenu] = useState<Set<string>>(new Set());
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatTargetFile, setChatTargetFile] = useState<FileGroup | null>(null);
 
   const fetchHistory = async () => {
     setIsLoading(true);
@@ -1282,6 +1285,18 @@ export default function MonitorPage() {
                     </div>
                   </button>
                   <div className="flex items-center gap-2 pr-4">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChatTargetFile(fileGroup);
+                        setIsChatOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                      title={`${displayName} OCR 텍스트로 대화하기`}
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span className="hidden sm:inline">대화하기</span>
+                    </button>
                     {fileGroup.records && fileGroup.records.length > 0 && (
                       <div className="relative download-menu-container">
                         <button
@@ -1481,6 +1496,16 @@ export default function MonitorPage() {
           </div>
         )}
       </div>
+
+      <OcrChatModal
+        isOpen={isChatOpen}
+        onClose={() => {
+          setIsChatOpen(false);
+          setChatTargetFile(null);
+        }}
+        fileGroup={chatTargetFile}
+        backendUrl={BACKEND_URL}
+      />
     </div>
   );
 }

@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from PIL import Image
 from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from typing import Optional
 
@@ -1111,6 +1111,128 @@ async def delete_extract_keys(keys_id: int, db: Session = Depends(get_db)):
     db.delete(keys)
     db.commit()
     return {"message": "ExtractKeys deleted successfully"}
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class OCRFileChatRequest(BaseModel):
+    filename: str
+    first_timestamp: Optional[str] = None
+    question: str
+    messages: List[ChatMessage] = []
+
+
+@app.post("/chat/ocr-file")
+async def chat_with_ocr_file(payload: OCRFileChatRequest, db: Session = Depends(get_db)):
+    """
+    OCR History의 '파일(그룹)' 단위로 OCR 텍스트를 DB에서 모아서,
+    Qwen2.5-VL 7B 모델과 질의응답합니다.
+    - filename: 파일명
+    - first_timestamp: 그룹 구분용(일 단위) 타임스탬프 (ISO 형식, optional)
+    - question: 유저 질문
+    - messages: 이전 대화 히스토리 (user/assistant)
+    """
+    try:
+        if not payload.filename or not payload.filename.strip():
+            raise HTTPException(status_code=400, detail="filename is required")
+        if not payload.question or not payload.question.strip():
+            raise HTTPException(status_code=400, detail="question is required")
+
+        query = db.query(OCRRecord).filter(OCRRecord.filename == payload.filename)
+
+        # first_timestamp가 있으면 해당 날짜(일 단위) 그룹만 대상으로 제한
+        if payload.first_timestamp:
+            try:
+                ts = payload.first_timestamp.replace("Z", "+00:00")
+                group_dt = datetime.fromisoformat(ts)
+                if group_dt.tzinfo:
+                    group_dt = group_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                day_start = datetime(group_dt.year, group_dt.month, group_dt.day, 0, 0, 0)
+                day_end = day_start + timedelta(days=1)
+                query = query.filter(
+                    OCRRecord.timestamp >= day_start,
+                    OCRRecord.timestamp < day_end
+                )
+            except Exception:
+                raise HTTPException(status_code=400, detail="invalid first_timestamp format")
+
+        # 페이지/ID 순으로 정렬 (페이지 없는 이미지는 뒤로) - SQLite 호환 정렬
+        from sqlalchemy import case
+        records = query.order_by(
+            case((OCRRecord.page_number.is_(None), 1), else_=0),
+            OCRRecord.page_number.asc(),
+            OCRRecord.id.asc()
+        ).all()
+
+        if not records:
+            raise HTTPException(status_code=404, detail="No OCR records found for this file group")
+
+        parts = []
+        for r in records:
+            label = []
+            if r.page_number is not None:
+                label.append(f"페이지 {r.page_number}")
+            label.append(f"ID {r.id}")
+            header = f"[{', '.join(label)}]"
+            text = (r.extracted_text or "").strip()
+            if text:
+                parts.append(f"{header}\n{text}")
+
+        ocr_text = "\n\n---\n\n".join(parts).strip()
+        if not ocr_text:
+            raise HTTPException(status_code=404, detail="OCR text is empty for this file group")
+
+        # 너무 길면 자르기 (컨텍스트 폭발 방지)
+        MAX_OCR_CHARS = 60000
+        if len(ocr_text) > MAX_OCR_CHARS:
+            ocr_text = ocr_text[:MAX_OCR_CHARS] + "\n\n(이하 생략: OCR 텍스트가 길어서 일부만 포함했습니다.)"
+
+        system_prompt = (
+            "당신은 문서 Q&A 어시스턴트입니다.\n"
+            "아래 OCR 텍스트만 근거로 답하세요. OCR 텍스트에서 확인할 수 없는 내용은 추측하지 말고 "
+            "'OCR 텍스트에서 확인할 수 없습니다.'라고 답하세요.\n"
+            "가능하면 근거가 되는 문장/값을 짧게 인용하거나, 페이지/ID 힌트를 덧붙이세요.\n\n"
+            f"OCR 텍스트:\n{ocr_text}"
+        )
+
+        chat_messages = [{"role": "system", "content": system_prompt}]
+
+        # 이전 히스토리 포함 (role은 user/assistant만 허용)
+        for m in (payload.messages or []):
+            if m.role not in ("user", "assistant"):
+                continue
+            content = (m.content or "").strip()
+            if not content:
+                continue
+            # 메시지가 너무 길면 잘라서 전송
+            chat_messages.append({"role": m.role, "content": content[:4000]})
+
+        chat_messages.append({"role": "user", "content": payload.question.strip()})
+
+        resp = ollama.chat(
+            model="qwen2.5vl:7b",
+            messages=chat_messages,
+            options={
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "num_ctx": 32768,
+                "num_predict": 2048,
+            }
+        )
+
+        answer = (resp.get("message", {}) or {}).get("content", "")
+        answer = (answer or "").strip()
+        if not answer:
+            answer = "응답이 비어있습니다. 다시 시도해주세요."
+
+        return {"answer": answer}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)[:200]}")
 
 
 @app.get("/")
