@@ -464,29 +464,49 @@ export default function MonitorPage() {
     );
   }, [files]);
 
+  // 레코드 상세 정보 가져오기 (이미지 포함)
+  const fetchRecordDetails = useCallback(async (recordId: number) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/history/${recordId}`);
+      if (response.ok) {
+        const fullRecord = await response.json();
+        return fullRecord;
+      }
+    } catch (err) {
+      console.error('Failed to fetch record details:', err);
+    }
+    return null;
+  }, []);
+
   // 이전 레코드로 이동
-  const navigateToPrevious = useCallback(() => {
+  const navigateToPrevious = useCallback(async () => {
     if (!selectedRecord) return;
     const allRecords = getAllRecordsSorted();
     const currentIndex = allRecords.findIndex(r => r.id === selectedRecord.id);
     if (currentIndex > 0) {
-      setSelectedRecord(allRecords[currentIndex - 1]);
+      const prevRecord = allRecords[currentIndex - 1];
+      // 이미지가 필요한 경우 별도로 조회
+      const fullRecord = await fetchRecordDetails(prevRecord.id);
+      setSelectedRecord(fullRecord || prevRecord);
       setIsEditing(false);
       setShowDeleteConfirm(false);
     }
-  }, [selectedRecord, getAllRecordsSorted]);
+  }, [selectedRecord, getAllRecordsSorted, fetchRecordDetails]);
 
   // 다음 레코드로 이동
-  const navigateToNext = useCallback(() => {
+  const navigateToNext = useCallback(async () => {
     if (!selectedRecord) return;
     const allRecords = getAllRecordsSorted();
     const currentIndex = allRecords.findIndex(r => r.id === selectedRecord.id);
     if (currentIndex < allRecords.length - 1) {
-      setSelectedRecord(allRecords[currentIndex + 1]);
+      const nextRecord = allRecords[currentIndex + 1];
+      // 이미지가 필요한 경우 별도로 조회
+      const fullRecord = await fetchRecordDetails(nextRecord.id);
+      setSelectedRecord(fullRecord || nextRecord);
       setIsEditing(false);
       setShowDeleteConfirm(false);
     }
-  }, [selectedRecord, getAllRecordsSorted]);
+  }, [selectedRecord, getAllRecordsSorted, fetchRecordDetails]);
 
   // 키보드 단축키 지원
   useEffect(() => {
@@ -1380,11 +1400,29 @@ export default function MonitorPage() {
                         return (
                           <div
                             key={record.id}
-                            onClick={() => {
+                            onClick={async () => {
                               if (isMultiSelectMode) {
                                 toggleRecordSelection(record.id);
                               } else {
-                                setSelectedRecord(record);
+                                // 이미지가 필요한 경우 별도 API로 조회
+                                if (!record.cropped_image) {
+                                  try {
+                                    const response = await fetch(`${BACKEND_URL}/history/${record.id}`);
+                                    if (response.ok) {
+                                      const fullRecord = await response.json();
+                                      setSelectedRecord(fullRecord);
+                                    } else {
+                                      // 이미지 없이도 표시 가능하도록 기존 레코드 사용
+                                      setSelectedRecord(record);
+                                    }
+                                  } catch (err) {
+                                    console.error('Failed to fetch record details:', err);
+                                    // 에러 발생 시에도 기존 레코드로 표시
+                                    setSelectedRecord(record);
+                                  }
+                                } else {
+                                  setSelectedRecord(record);
+                                }
                               }
                             }}
                             className={`p-3 border rounded-md transition-colors ${

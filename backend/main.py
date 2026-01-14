@@ -540,13 +540,15 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
                     }
                     
                     # 레코드 목록 생성 (include_records=True일 때만, 성능 최적화)
+                    # cropped_image는 크기가 크므로 제외 (필요시 GET /history/{id}로 조회)
+                    # 응답 크기 최적화: 92MB 이미지 데이터를 제외하여 서버 부하 감소
                     if include_records:
                         records_list = []
                         for record in daily_records:
                             records_list.append({
                                 "id": record.id,
                                 "extracted_text": record.extracted_text,
-                                "cropped_image": record.cropped_image,
+                                # cropped_image 제외: 응답 크기 최적화 (필요시 GET /history/{id}로 조회)
                                 "timestamp": record.timestamp.isoformat(),
                                 "page_number": record.page_number
                             })
@@ -583,6 +585,30 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
         error_detail = f"Failed to fetch history: {str(e)}\n{traceback.format_exc()}"
         print(f"History API Error: {error_detail}")  # 서버 로그에 출력
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+
+@app.get("/history/{record_id}")
+async def get_record(record_id: int, db: Session = Depends(get_db)):
+    """
+    단일 OCR 기록을 조회합니다. 이미지 포함.
+    """
+    try:
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Record not found")
+        
+        return {
+            "id": record.id,
+            "extracted_text": record.extracted_text,
+            "cropped_image": record.cropped_image,
+            "timestamp": record.timestamp.isoformat(),
+            "filename": record.filename,
+            "page_number": record.page_number
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch record: {str(e)}")
 
 
 @app.put("/history/{record_id}")

@@ -221,6 +221,7 @@ export default function Home() {
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 서버에서 프롬프트 목록 불러오기
   const fetchPrompts = useCallback(async () => {
@@ -1108,6 +1109,7 @@ export default function Home() {
 
   // 단일 파일 처리 함수
   const processFile = async (selectedFile: File, fileIndex: number = 0, totalFiles: number = 1) => {
+    console.log('processFile 시작:', selectedFile.name, selectedFile.type);
 
     // 자동 로그인으로 인증 체크 제거
 
@@ -1134,6 +1136,8 @@ export default function Home() {
 
     const fileType = selectedFile.type;
     const fileName = selectedFile.name.toLowerCase();
+    
+    console.log('파일 정보:', { fileType, fileName, size: selectedFile.size });
 
     try {
       // PPT 파일인 경우 PDF로 변환
@@ -1224,10 +1228,12 @@ export default function Home() {
         
         const reader = new FileReader();
         reader.onload = (e) => {
+          console.log('이미지 파일 읽기 완료');
           const imageDataUrl = e.target?.result as string;
           setUploadProgress(100);
           setImageSrc(imageDataUrl);
           setIsUploading(false);
+          console.log('이미지 src 설정 완료, isUploading: false');
           
           // 파일 데이터 저장 (다중 파일 업로드용)
           if (totalFiles > 1) {
@@ -1247,7 +1253,7 @@ export default function Home() {
         reader.onerror = () => {
           setError('파일 읽기 중 오류가 발생했습니다.');
           setIsUploading(false);
-          setFile(null);
+          // file은 유지하여 에러 메시지를 볼 수 있도록 함
         };
         reader.readAsDataURL(selectedFile);
       } else if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
@@ -1269,12 +1275,14 @@ export default function Home() {
         
         // 첫 페이지 표시
         const dataUrl = canvases[0].toDataURL('image/png');
+        console.log('PDF 렌더링 완료, 페이지 수:', totalPages);
         // 이전 이미지 완전히 제거 후 새 이미지 설정
         setImageSrc(null);
         setTimeout(() => {
           setImageSrc(dataUrl);
           setUploadProgress(100);
           setIsUploading(false);
+          console.log('PDF 이미지 src 설정 완료, isUploading: false');
         }, 50);
         
         // 파일 데이터 저장 (다중 파일 업로드용)
@@ -1292,13 +1300,17 @@ export default function Home() {
           });
         }
       } else {
+        console.warn('지원하지 않는 파일 형식:', fileType, fileName);
         setError('지원하지 않는 파일 형식입니다. 이미지(jpg, png) 또는 PDF 파일을 업로드해주세요.');
-        setFile(null);
+        // 파일 상태는 유지하여 에러 메시지를 볼 수 있도록 함
+        // setFile(null); // 주석 처리: 에러 메시지를 표시하기 위해 파일 상태 유지
         setIsUploading(false);
       }
     } catch (err) {
+      console.error('파일 처리 에러:', err);
       setError(`파일 처리 중 오류가 발생했습니다: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setFile(null);
+      // 에러 발생 시에도 파일 상태는 유지하여 에러 메시지를 볼 수 있도록 함
+      // setFile(null); // 주석 처리: 에러 메시지를 표시하기 위해 파일 상태 유지
       setIsUploading(false);
       setUploadProgress(0);
     }
@@ -1348,6 +1360,23 @@ export default function Home() {
     }
   };
 
+  // OCR 중지
+  const handleStopOCR = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsProcessing(false);
+    setProcessingProgress('');
+    // OCR 실행된 결과 삭제
+    setOcrResult(null);
+    setOcrResultsData([]);
+    setProcessedAreasCount(0);
+    setProcessedPagesSet(new Set());
+    setCroppedPreviews(new Map());
+    setError('OCR 실행이 중지되었습니다.');
+  };
+
   // OCR 실행
   const handleRunOCR = async () => {
     if (!imageSrc) {
@@ -1355,12 +1384,16 @@ export default function Home() {
       return;
     }
 
+    // AbortController 생성
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
     // 고급 모드에서 다중 파일이 업로드된 경우
     if (ocrMode === 'advanced' && files.length > 1) {
-      setIsProcessing(true);
-      setError(null);
-      setOcrResult(null);
-      setProcessingProgress('');
+    setIsProcessing(true);
+    setError(null);
+    setOcrResult(null);
+    setProcessingProgress('');
       setOcrResultsData([]);
 
       try {
@@ -1368,6 +1401,11 @@ export default function Home() {
         
         // 모든 파일에 대해 OCR 실행
         for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+          // 중지 신호 확인
+          if (signal.aborted) {
+            throw new Error('OCR 실행이 중지되었습니다.');
+          }
+          
           const currentFile = files[fileIndex];
           setProcessingProgress(`파일 ${fileIndex + 1}/${files.length} 처리 중: ${currentFile.name}`);
           
@@ -1388,6 +1426,11 @@ export default function Home() {
           const pagesToProcess = isPdfFile ? totalPages : 1;
           
           for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+            // 중지 신호 확인
+            if (signal.aborted) {
+              throw new Error('OCR 실행이 중지되었습니다.');
+            }
+            
             setProcessingProgress(`파일 ${fileIndex + 1}/${files.length} - 페이지 ${pageNum}/${pagesToProcess} 처리 중...`);
             
             let imageBlob: Blob;
@@ -1446,9 +1489,15 @@ export default function Home() {
               formData.append('custom_prompt', promptToUse);
             }
             
+            // 중지 신호 확인
+            if (signal.aborted) {
+              throw new Error('OCR 실행이 중지되었습니다.');
+            }
+
             const response = await fetch(`${BACKEND_URL}/ocr`, {
               method: 'POST',
               body: formData,
+              signal: signal,
             });
             
             if (!response.ok) {
@@ -1479,9 +1528,15 @@ export default function Home() {
         
         setProcessingProgress(`완료: ${files.length}개 파일 처리됨`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'OCR 처리 중 오류가 발생했습니다.');
+        if (err instanceof Error && err.name === 'AbortError') {
+          // 중지된 경우 결과는 이미 handleStopOCR에서 삭제됨
+          setError('OCR 실행이 중지되었습니다.');
+        } else {
+          setError(err instanceof Error ? err.message : 'OCR 처리 중 오류가 발생했습니다.');
+        }
       } finally {
         setIsProcessing(false);
+        abortControllerRef.current = null;
         setTimeout(() => setProcessingProgress(''), 2000);
       }
       return;
@@ -1512,6 +1567,10 @@ export default function Home() {
     setOcrResultsData([]); // 새로운 OCR 실행 시 이전 결과 데이터 초기화
 
     try {
+      // 중지 신호 확인
+      if (signal.aborted) {
+        throw new Error('OCR 실행이 중지되었습니다.');
+      }
       const allResults: string[] = [];
       const newPreviews = new Map<string, string>();
       const processedPages = new Set<number>(); // 실제 처리된 페이지 번호 추적
@@ -1521,12 +1580,17 @@ export default function Home() {
         const pagesToProcess = isPdf ? totalPages : 1;
         
         for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+          // 중지 신호 확인
+          if (signal.aborted) {
+            throw new Error('OCR 실행이 중지되었습니다.');
+          }
+          
           setProcessingProgress(`페이지 전체 자동수집 중... (${pageNum}/${pagesToProcess})`);
           
           let imageBlob: Blob;
           let filename: string;
-          
-          if (isPdf && pdfFile) {
+
+      if (isPdf && pdfFile) {
             // PDF 페이지 처리
             const canvas = pdfCanvases[pageNum - 1];
             if (!canvas) continue;
@@ -1609,6 +1673,11 @@ export default function Home() {
       } else {
         // 각 크롭 영역에 대해 OCR 실행
         for (let areaIndex = 0; areaIndex < allCropAreas.length; areaIndex++) {
+          // 중지 신호 확인
+          if (signal.aborted) {
+            throw new Error('OCR 실행이 중지되었습니다.');
+          }
+          
           const area = allCropAreas[areaIndex];
           
           // 크롭 영역의 퍼센트 값을 사용하여 실제 픽셀 좌표 계산
@@ -1652,7 +1721,7 @@ export default function Home() {
             const previewUrl = URL.createObjectURL(blob);
             newPreviews.set(area.id, previewUrl);
 
-            const formData = new FormData();
+          const formData = new FormData();
             formData.append('file', blob, `cropped_page_${area.pageNumber}.png`);
             formData.append('filename', pdfFile?.name || 'unknown.pdf');
             formData.append('page_number', String(area.pageNumber));
@@ -1665,18 +1734,18 @@ export default function Home() {
               formData.append('custom_prompt', promptToUse);
             }
 
-            const response = await fetch(`${BACKEND_URL}/ocr`, {
-              method: 'POST',
-              body: formData,
-            });
+          const response = await fetch(`${BACKEND_URL}/ocr`, {
+            method: 'POST',
+            body: formData,
+          });
 
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
               throw new Error(`영역 ${areaIndex + 1}, 페이지 ${area.pageNumber} 처리 실패: ${errorData.detail || 'Unknown error'}`);
-            }
+          }
 
-            const data = await response.json();
-            if (data.extracted_text && data.extracted_text.trim()) {
+          const data = await response.json();
+          if (data.extracted_text && data.extracted_text.trim()) {
               const resultText = `[페이지 ${area.pageNumber} - 영역 ${areaIndex + 1}]\n${data.extracted_text}`;
               allResults.push(resultText);
               processedPages.add(area.pageNumber); // 실제 처리된 페이지 번호 추가
@@ -1726,7 +1795,7 @@ export default function Home() {
                 width: ratioWidth * naturalWidth,
                 height: ratioHeight * naturalHeight,
               };
-            } else {
+      } else {
               // cropPercent가 없으면 completedCrop 사용 (이전 호환성)
               // completedCrop은 표시 크기 기준이므로 원본 크기로 변환 필요
               const scaleX = naturalWidth / displayedWidth;
@@ -1742,12 +1811,12 @@ export default function Home() {
             
             const blob = await cropImageToBlob(imgRef.current, cropArea, { width: displayedWidth, height: displayedHeight });
 
-            // 크롭된 이미지 미리보기 생성
-            const previewUrl = URL.createObjectURL(blob);
+        // 크롭된 이미지 미리보기 생성
+        const previewUrl = URL.createObjectURL(blob);
             newPreviews.set(area.id, previewUrl);
 
-            const formData = new FormData();
-            formData.append('file', blob, 'cropped.png');
+        const formData = new FormData();
+        formData.append('file', blob, 'cropped.png');
             formData.append('filename', file?.name || 'unknown');
             formData.append('page_number', String(0)); // 이미지 파일의 경우 page_number를 0으로 명시적으로 전송
             // 모드에 따라 프롬프트 생성
@@ -1759,17 +1828,17 @@ export default function Home() {
               formData.append('custom_prompt', promptToUseImage);
             }
 
-            const response = await fetch(`${BACKEND_URL}/ocr`, {
-              method: 'POST',
-              body: formData,
-            });
+        const response = await fetch(`${BACKEND_URL}/ocr`, {
+          method: 'POST',
+          body: formData,
+        });
 
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
               throw new Error(`영역 ${areaIndex + 1} 처리 실패: ${errorData.detail || 'OCR 처리에 실패했습니다.'}`);
-            }
+        }
 
-            const data = await response.json();
+        const data = await response.json();
             if (data.extracted_text && data.extracted_text.trim()) {
               const resultText = `[영역 ${areaIndex + 1}]\n${data.extracted_text}`;
               allResults.push(resultText);
@@ -1800,9 +1869,15 @@ export default function Home() {
       setProcessedPagesSet(processedPages); // 실제 처리된 페이지 Set 저장
       setProcessingProgress(`완료: ${allResults.length}개 영역 처리됨`);
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // 중지된 경우 결과는 이미 handleStopOCR에서 삭제됨
+        setError('OCR 실행이 중지되었습니다.');
+      } else {
       setError(err instanceof Error ? err.message : 'OCR 처리 중 오류가 발생했습니다.');
+      }
     } finally {
       setIsProcessing(false);
+      abortControllerRef.current = null;
       setTimeout(() => setProcessingProgress(''), 2000);
     }
   };
@@ -1843,9 +1918,9 @@ export default function Home() {
     }
   };
 
-  // Landing State: 파일이 없을 때
-  // 다중 파일 업로드 모드일 때는 files.length도 확인
-  if (!file && !imageSrc && (ocrMode !== 'advanced' || files.length === 0)) {
+  // Landing State: 파일이 없을 때만 표시
+  // file이 있으면 무조건 WorkspaceState 표시 (업로드 중이거나 이미지가 로드되지 않아도)
+  if (!file && (ocrMode !== 'advanced' || files.length === 0)) {
   return (
       <>
         <LandingState onFileSelect={handleFileSelect} fileInputRef={fileInputRef} ocrMode={ocrMode} />
@@ -1929,22 +2004,22 @@ export default function Home() {
               {/* 파일 추가 버튼 (고급 모드에서만 표시) */}
               {ocrMode === 'advanced' && (
                 <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
+            <input
+              ref={fileInputRef}
+              type="file"
                     accept="image/*,.pdf,.ppt,.pptx"
-                    onChange={handleFileSelect}
-                    className="hidden"
+              onChange={handleFileSelect}
+              className="hidden"
                     id="multi-file-upload-left"
                     multiple
-                  />
-                  <label
+            />
+            <label
                     htmlFor="multi-file-upload-left"
                     className="inline-flex items-center justify-center w-full px-3 py-2 border border-blue-300 rounded-md text-xs font-medium text-blue-700 bg-white hover:bg-blue-50 cursor-pointer transition-colors mb-3"
-                  >
+            >
                     <FolderOpen className="w-3 h-3 mr-2" />
                     파일 추가
-                  </label>
+            </label>
                 </>
               )}
               <div className="space-y-1">
@@ -1961,7 +2036,7 @@ export default function Home() {
                 {files.map((f, idx) => {
                   const isActive = idx === currentFileIndex;
                   return (
-                    <button
+                <button
                       key={idx}
                       onClick={async () => {
                         // 파일 상태를 먼저 설정하여 LandingState로 돌아가지 않도록 함
@@ -1998,14 +2073,14 @@ export default function Home() {
                         isActive ? 'text-blue-700' : ''
                       }`}>
                         {f.name}
-                      </div>
+              </div>
                       {isActive && (
                         <div className="text-xs text-blue-600 mt-1">현재 파일</div>
-                      )}
+            )}
                     </button>
                   );
                 })}
-              </div>
+          </div>
             </div>
           </div>
         ) : null}
@@ -2034,7 +2109,7 @@ export default function Home() {
             {error && (
               <div className="px-6 py-3 bg-red-50 border-b border-red-200 flex-shrink-0">
                 <p className="text-sm text-red-800">{error}</p>
-                </div>
+        </div>
               )}
             
             {/* Scrollable Canvas Area - 이미지가 한 화면에 다 보이도록 */}
@@ -2184,35 +2259,35 @@ export default function Home() {
             </div>
 
             {/* Page Navigation (for PDF) */}
-            {isPdf && totalPages > 1 && (
+              {isPdf && totalPages > 1 && (
               <div className="px-6 py-3 bg-white border-t border-gray-200 flex items-center justify-center space-x-4 flex-shrink-0">
-              <button
-                  onClick={() => handlePageChange(currentPage - 1)}
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1 || isProcessing}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
+                  >
+                    <ChevronLeft className="w-4 h-4" />
                   {t('workspace.pageNavigation.previous')}
-                </button>
-                <span className="text-sm text-gray-700">
+                  </button>
+                  <span className="text-sm text-gray-700">
                   {t('workspace.pageNavigation.current')} {currentPage} {t('workspace.pageNavigation.of')} {totalPages}
                   {isProcessing && (
                     <span className="ml-2 text-xs text-blue-600">
                       {t('workspace.pageNavigation.ocrInProgress')}
                     </span>
                   )}
-                </span>
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages || isProcessing}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
+                  >
                   {t('workspace.pageNavigation.next')}
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
 
           {/* 오른쪽: 선택 영역 관리 섹션 (너비 축소) */}
           <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
@@ -2532,7 +2607,7 @@ export default function Home() {
                         placeholder={t('workspace.rightInspector.mode.keyPlaceholder')}
                         className="flex-1 min-w-[120px] border-none outline-none text-sm text-gray-900 bg-transparent"
                       />
-                    </div>
+                </div>
                     <p className="mt-1 text-xs text-gray-500">
                       {t('workspace.rightInspector.mode.keyHint')}
                     </p>
@@ -2551,11 +2626,11 @@ export default function Home() {
                         >
                           {t('workspace.rightInspector.mode.saveKeys')}
                         </button>
-                      )}
-                    </div>
+              )}
+            </div>
                     <div className="flex flex-wrap gap-2 mb-2">
                       {Object.keys(PRESETS).map((presetKey) => (
-                        <button
+              <button
                           key={presetKey}
                           onClick={() => loadPreset(presetKey as keyof typeof PRESETS)}
                           className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 transition-colors"
@@ -2602,12 +2677,12 @@ export default function Home() {
                                       title={t('workspace.rightInspector.prompt.delete')}
                                     >
                                       <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
+              </button>
+            </div>
                                 </div>
                               ))}
-                            </div>
-                          )}
+          </div>
+        )}
                         </div>
                       )}
                     </div>
@@ -2634,8 +2709,8 @@ export default function Home() {
                     </p>
                   </div>
                 </div>
-              </div>
-            )}
+          </div>
+        )}
 
             {/* Advanced Mode: Legacy Prompt Editor (Optional, for power users) */}
             {ocrMode === 'advanced' && (
@@ -2731,7 +2806,7 @@ export default function Home() {
                       >
                         {t('workspace.rightInspector.prompt.save')}
                       </button>
-                    </div>
+            </div>
                     {/* Save Dialog */}
                     {showSaveDialog && (
                       <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
@@ -2770,8 +2845,8 @@ export default function Home() {
                     )}
                   </div>
                 )}
-              </div>
-            )}
+          </div>
+        )}
 
             {/* Save Extract Keys Dialog */}
             {showSaveKeysDialog && (
@@ -2806,9 +2881,9 @@ export default function Home() {
                   >
                     {t('common.cancel')}
                   </button>
-                </div>
-              </div>
-            )}
+            </div>
+          </div>
+        )}
           </div>
 
           {/* OCR Results Section */}
@@ -2852,9 +2927,9 @@ export default function Home() {
                           <div className="text-xs text-blue-600 mt-2">
                             (영역 {actualAreasCount}개 × 페이지 {actualPagesCount}개 × 1분, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
                           </div>
-                        </div>
-                      </div>
-                    );
+      </div>
+    </div>
+  );
                   })()}
                   <div className="bg-gray-50 rounded-md p-4 border border-gray-200">
                     <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono">
@@ -2872,36 +2947,39 @@ export default function Home() {
 
           {/* Actions Bar (Sticky Bottom) */}
           <div className="border-t border-gray-200 p-4 bg-gray-50 space-y-2">
-            <button
-              onClick={handleRunOCR}
-              disabled={isProcessing || (() => {
-                // 고급 모드에서 페이지 전체 자동수집이 체크되어 있으면 영역 지정 없이도 실행 가능
-                if (ocrMode === 'advanced' && autoCollectFullPage) {
-                  return false;
-                }
-                const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
-                return allAreasCount === 0;
-              })()}
-              className="w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {processingProgress || t('workspace.rightInspector.actions.processing')}
-                </>
-              ) : (
-                <>
-                  {t('workspace.rightInspector.actions.runOCR')}
-                  {(() => {
-                    if (ocrMode === 'advanced' && autoCollectFullPage) {
-                      return ` (${isPdf ? totalPages : 1}페이지 전체)`;
-                    }
-                    const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
-                    return allAreasCount > 0 ? ` (${allAreasCount})` : '';
-                  })()}
-                </>
-              )}
-            </button>
+            {isProcessing ? (
+              <button
+                onClick={handleStopOCR}
+                className="w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+              >
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <span className="flex-1 text-left">{processingProgress || 'OCR 처리 중...'}</span>
+                <X className="w-4 h-4 ml-2" />
+                <span className="ml-2">중지</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleRunOCR}
+                disabled={(() => {
+                  // 고급 모드에서 페이지 전체 자동수집이 체크되어 있으면 영역 지정 없이도 실행 가능
+                  if (ocrMode === 'advanced' && autoCollectFullPage) {
+                    return false;
+                  }
+                  const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
+                  return allAreasCount === 0;
+                })()}
+                className="w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {t('workspace.rightInspector.actions.runOCR')}
+                {(() => {
+                  if (ocrMode === 'advanced' && autoCollectFullPage) {
+                    return ` (${isPdf ? totalPages : 1}페이지 전체)`;
+                  }
+                  const allAreasCount = Array.from(cropAreasByPage.values()).reduce((sum, areas) => sum + areas.length, 0);
+                  return allAreasCount > 0 ? ` (${allAreasCount})` : '';
+                })()}
+              </button>
+            )}
             
             {/* 저장 및 결과 초기화 버튼 */}
             {ocrResult && (

@@ -16,7 +16,15 @@ export async function renderPdfFirstPageToCanvas(
   file: File
 ): Promise<HTMLCanvasElement> {
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  } catch (error: any) {
+    if (error?.message?.includes('password') || error?.name === 'PasswordException') {
+      throw new Error('이 PDF 파일은 비밀번호로 보호되어 있습니다. 비밀번호 보호가 없는 PDF 파일을 업로드해주세요.');
+    }
+    throw new Error(`PDF 파일을 읽는 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}`);
+  }
   const page = await pdf.getPage(1); // 첫 페이지
 
   // 원본 크기로 렌더링 (scale: 1.0 = 72 DPI, PDF의 기본 크기)
@@ -46,7 +54,15 @@ export async function renderPdfAllPagesToCanvases(
   file: File
 ): Promise<HTMLCanvasElement[]> {
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  } catch (error: any) {
+    if (error?.message?.includes('password') || error?.name === 'PasswordException') {
+      throw new Error('이 PDF 파일은 비밀번호로 보호되어 있습니다. 비밀번호 보호가 없는 PDF 파일을 업로드해주세요.');
+    }
+    throw new Error(`PDF 파일을 읽는 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}`);
+  }
   const numPages = pdf.numPages;
   const canvases: HTMLCanvasElement[] = [];
 
@@ -80,7 +96,15 @@ export async function renderPdfAllPagesToCanvases(
  */
 export async function getPdfPageCount(file: File): Promise<number> {
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  } catch (error: any) {
+    if (error?.message?.includes('password') || error?.name === 'PasswordException') {
+      throw new Error('이 PDF 파일은 비밀번호로 보호되어 있습니다. 비밀번호 보호가 없는 PDF 파일을 업로드해주세요.');
+    }
+    throw new Error(`PDF 파일을 읽는 중 오류가 발생했습니다: ${error?.message || 'Unknown error'}`);
+  }
   return pdf.numPages;
 }
 
