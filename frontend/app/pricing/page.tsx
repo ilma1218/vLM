@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
-import { Check, Crown, Users, Building2, CreditCard, Info, FileText, AlertCircle } from 'lucide-react';
+import { Check, Crown, Users, Building2, CreditCard, Info, FileText, AlertCircle, Briefcase, Sparkles } from 'lucide-react';
 import LoginModal from '@/components/LoginModal';
 
 export default function PricingPage() {
@@ -18,18 +18,18 @@ export default function PricingPage() {
       popular: false,
     },
     {
-      key: 'payPerUse',
-      icon: <CreditCard className="w-6 h-6" />,
-      popular: false,
-    },
-    {
       key: 'pro',
       icon: <Crown className="w-6 h-6" />,
       popular: false,
     },
     {
-      key: 'flex',
-      icon: <Users className="w-6 h-6" />,
+      key: 'expert',
+      icon: <Sparkles className="w-6 h-6" />,
+      popular: false,
+    },
+    {
+      key: 'businessFlex',
+      icon: <Briefcase className="w-6 h-6" />,
       popular: true,
     },
     {
@@ -138,55 +138,43 @@ export default function PricingPage() {
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.limit')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.limit`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.paymentMethod')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.paymentMethod`)}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.pages')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.pages`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.capacity')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.capacity`)}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.areas')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.areas`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.credits')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.credits`)}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.extraction')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.extraction`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.pageUnitPrice')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.pageUnitPrice`)}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.storage')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.storage`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.users')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.users`)}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Check className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
                       <div>
-                        <span className="text-xs font-semibold text-gray-500">
-                          {t('pricing.features.speed')}:
-                        </span>
-                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.features.speed`)}</p>
+                        <span className="text-xs font-semibold text-gray-500">{t('pricing.comparison.validity')}:</span>
+                        <p className="text-sm text-gray-900">{t(`pricing.plans.${plan.key}.comparison.validity`)}</p>
                       </div>
                     </div>
                   </div>
@@ -203,184 +191,164 @@ export default function PricingPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 border-b border-gray-200">
-                    구분
+                    {t('pricing.comparison.category')}
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 border-b border-gray-200">
-                    Free (체험판)
+                    {t('pricing.plans.free.name')} ({t('pricing.plans.free.subtitle')})
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 border-b border-gray-200">
-                    Pay-per-Use (1건당)
+                    {t('pricing.plans.pro.name')} ({t('pricing.plans.pro.subtitle')})
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 border-b border-gray-200 bg-blue-50">
-                    Pro (구독형)
+                    {t('pricing.plans.expert.name')} ({t('pricing.plans.expert.subtitle')})
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 border-b border-gray-200">
-                    Flex (충전형/종량제)
+                    {t('pricing.plans.businessFlex.name')} ({t('pricing.plans.businessFlex.subtitle')})
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-gray-900 border-b border-gray-200">
-                    Enterprise (솔루션)
+                    {t('pricing.plans.enterprise.name')}
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    타겟
+                    {t('pricing.comparison.paymentMethod')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    개인, 테스트 유저
+                    {t('pricing.plans.free.comparison.paymentMethod')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    간헐적 사용자, 테스트
+                    {t('pricing.plans.pro.comparison.paymentMethod')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    프리랜서, 실무자
+                    {t('pricing.plans.expert.comparison.paymentMethod')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    간헐적 사용자
+                    {t('pricing.plans.businessFlex.comparison.paymentMethod')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    기업, 관공서, 대량 처리
+                    {t('pricing.plans.enterprise.comparison.paymentMethod')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    가격
+                    {t('pricing.comparison.price')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    ₩0 / 월
+                    {t('pricing.plans.free.comparison.price')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    ₩500 / 건
+                    {t('pricing.plans.pro.comparison.price')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    ₩29,000 / 월
+                    {t('pricing.plans.expert.comparison.price')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    ₩50,000 / 500 Credits
+                    {t('pricing.plans.businessFlex.comparison.price')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    별도 문의
+                    {t('pricing.plans.enterprise.comparison.price')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    제공량
+                    {t('pricing.comparison.credits')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    1일 1건 제한
+                    {t('pricing.plans.free.comparison.credits')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    1건당 결제
+                    {t('pricing.plans.pro.comparison.credits')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    월 300건 (Credits)
+                    {t('pricing.plans.expert.comparison.credits')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    제한 없음
+                    {t('pricing.plans.businessFlex.comparison.credits')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    무제한 / 설치형
+                    {t('pricing.plans.enterprise.comparison.credits')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    페이지 제한
+                    {t('pricing.comparison.capacity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    문서당 3페이지
+                    {t('pricing.plans.free.comparison.capacity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    문서당 10페이지
+                    {t('pricing.plans.pro.comparison.capacity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    문서당 50페이지
+                    {t('pricing.plans.expert.comparison.capacity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    제한 없음
+                    {t('pricing.plans.businessFlex.comparison.capacity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    제한 없음
+                    {t('pricing.plans.enterprise.comparison.capacity')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    영역(Crop)
+                    {t('pricing.comparison.pageUnitPrice')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    페이지당 1개
+                    {t('pricing.plans.free.comparison.pageUnitPrice')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    페이지당 5개
+                    {t('pricing.plans.pro.comparison.pageUnitPrice')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    페이지당 무제한
+                    {t('pricing.plans.expert.comparison.pageUnitPrice')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    페이지당 무제한
+                    {t('pricing.plans.businessFlex.comparison.pageUnitPrice')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    무제한
+                    {t('pricing.plans.enterprise.comparison.pageUnitPrice')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    추출 항목
+                    {t('pricing.comparison.users')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    기본 Key:Value
+                    {t('pricing.plans.free.comparison.users')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    기본 Key:Value
+                    {t('pricing.plans.pro.comparison.users')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    고급 프롬프트 지원
+                    {t('pricing.plans.expert.comparison.users')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    고급 프롬프트 지원
+                    {t('pricing.plans.businessFlex.comparison.users')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    Custom 모델 튜닝
+                    {t('pricing.plans.enterprise.comparison.users')}
                   </td>
                 </tr>
                 <tr>
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    저장
+                    {t('pricing.comparison.validity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    24시간 후 삭제
+                    {t('pricing.plans.free.comparison.validity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    7일 보관
+                    {t('pricing.plans.pro.comparison.validity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    1년 보관
+                    {t('pricing.plans.expert.comparison.validity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    1년 보관
+                    {t('pricing.plans.businessFlex.comparison.validity')}
                   </td>
                   <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    영구 보관 (자사 서버)
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    속도
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    Standard
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    Standard
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-gray-600 bg-blue-50">
-                    Fast (GPU 우선 할당)
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    Fast
-                  </td>
-                  <td className="px-6 py-4 text-sm text-center text-gray-600">
-                    Dedicated (전용)
+                    {t('pricing.plans.enterprise.comparison.validity')}
                   </td>
                 </tr>
               </tbody>

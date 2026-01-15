@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# NOTE:
+# The rule above ignores any "lib/" directory. We need to keep Next.js source under "frontend/lib".
+!frontend/lib/
+
 # Virtual Environment
 venv/
 env/
