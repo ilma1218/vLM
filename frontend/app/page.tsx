@@ -77,7 +77,7 @@ interface CropAreaData {
 
 export default function Home() {
   const { t } = useLanguage();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [files, setFiles] = useState<File[]>([]); // 다중 파일 업로드용
