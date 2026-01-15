@@ -26,12 +26,12 @@ export default function PricingPage() {
     {
       key: 'expert',
       icon: <Sparkles className="w-6 h-6" />,
-      popular: false,
+      popular: true,
     },
     {
       key: 'businessFlex',
       icon: <Briefcase className="w-6 h-6" />,
-      popular: true,
+      popular: false,
     },
     {
       key: 'enterprise',
