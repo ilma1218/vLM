@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useLanguage } from '@/lib/i18n';
 import { useAuth } from '@/hooks/useAuth';
-import { Check, Crown, Users, Building2, Info, FileText, AlertCircle, Briefcase, Sparkles } from 'lucide-react';
+import { Check, Crown, Users, Building2, Info, FileText, AlertCircle, Briefcase, Sparkles, X } from 'lucide-react';
 import LoginModal from '@/components/LoginModal';
 
 export default function PricingPage() {
   const { t } = useLanguage();
   const { isAuthenticated } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showExpertCaseModal, setShowExpertCaseModal] = useState(false);
 
   const plans = [
     {
@@ -132,6 +133,17 @@ export default function PricingPage() {
                   >
                     {t(`pricing.plans.${plan.key}.button`)}
                   </button>
+
+                  {/* Expert Case Button */}
+                  {plan.key === 'expert' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowExpertCaseModal(true)}
+                      className="w-full mb-6 py-2.5 px-4 rounded-lg font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
+                    >
+                      500페이지를 변환한다면?
+                    </button>
+                  )}
 
                   {/* Features */}
                   <div className="space-y-3">
@@ -290,6 +302,90 @@ export default function PricingPage() {
         // 로그인 성공 후 다시 버튼 클릭하도록 (또는 자동으로 진행)
       }}
     />
+
+    {/* Expert 500-page case study modal */}
+    {showExpertCaseModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 relative">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-2">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900">
+                500페이지를 변환한다면?
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowExpertCaseModal(false)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="닫기"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+            {/* A */}
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+              <h3 className="text-base font-bold text-gray-900 mb-2">A. 작업 조건</h3>
+              <ul className="space-y-1 text-sm text-gray-700">
+                <li><span className="font-semibold">분량:</span> 500페이지 (Expert 팩 기준)</li>
+                <li><span className="font-semibold">작업:</span> 페이지당 영역 2개 확인 + Key:Value 10개 추출 후 엑셀 입력</li>
+                <li><span className="font-semibold">난이도:</span> 단순 타이핑이 아니라, 문맥을 읽고 판단해야 함 (Human Think Time 필수)</li>
+              </ul>
+            </div>
+
+            {/* B */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="text-base font-bold text-gray-900 mb-2">B. 사람(Human)이 할 경우</h3>
+              <ul className="space-y-1 text-sm text-gray-700 mb-3">
+                <li><span className="font-semibold">작업 속도:</span> 페이지당 평균 3분 소요 (현실적 기준)</li>
+                <li className="text-gray-600">(내용 판독/Think 1분 + 타이핑 1분 + 검수 1분)</li>
+                <li><span className="font-semibold">총 소요 시간:</span> 500장 × 3분 = 1,500분 = 25시간</li>
+                <li className="text-gray-600">하루 8시간 근무 기준, 꼬박 3일 하고도 1시간이 더 걸립니다.</li>
+              </ul>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="text-sm text-gray-800">
+                  <span className="font-semibold">인건비 계산:</span> 시급 20,000원 기준 (기업 실질 인건비)
+                </div>
+                <div className="mt-1 text-lg font-extrabold text-red-700">
+                  25시간 × 20,000원 = 500,000원
+                </div>
+              </div>
+            </div>
+
+            {/* C */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="text-base font-bold text-gray-900 mb-2">C. IO-VISION(AI)이 할 경우</h3>
+              <ul className="space-y-1 text-sm text-gray-700 mb-3">
+                <li><span className="font-semibold">작업 속도:</span> 페이지당 약 3초</li>
+                <li><span className="font-semibold">총 소요 시간:</span> 업로드/다운로드 포함 약 30분</li>
+              </ul>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-sm text-gray-800">
+                  <span className="font-semibold">비용:</span> Expert 팩 결제 금액
+                </div>
+                <div className="mt-1 text-lg font-extrabold text-blue-700">
+                  300,000원
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setShowExpertCaseModal(false)}
+              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
