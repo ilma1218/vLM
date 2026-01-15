@@ -3009,12 +3009,16 @@ export default function Home() {
                     
                     try {
                       setError(null);
+                      const saveSessionId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                      const userEmail = user?.email || 'user@example.com';
                       // 각 OCR 결과를 순차적으로 저장
                       for (const resultData of ocrResultsData) {
                         const formData = new FormData();
                         formData.append('extracted_text', resultData.extracted_text);
                         formData.append('cropped_image', resultData.cropped_image);
                         formData.append('filename', resultData.filename);
+                        formData.append('user_email', userEmail);
+                        formData.append('save_session_id', saveSessionId);
                         if (resultData.page_number !== null) {
                           formData.append('page_number', String(resultData.page_number));
                         }
@@ -3025,7 +3029,15 @@ export default function Home() {
                         });
                         
                         if (!response.ok) {
-                          throw new Error('저장에 실패했습니다.');
+                          // 가능한 경우 백엔드 에러 메시지(detail)를 노출
+                          let message = '저장에 실패했습니다.';
+                          try {
+                            const data = await response.json();
+                            if (data?.detail) message = data.detail;
+                          } catch {
+                            // ignore
+                          }
+                          throw new Error(message);
                         }
                       }
                       

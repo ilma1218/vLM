@@ -13,7 +13,7 @@ import tempfile
 import os
 from pathlib import Path
 from PIL import Image
-from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys
+from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys, UserAccount, Purchase, CreditLedger, SessionLocal
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from typing import Optional
@@ -35,6 +35,69 @@ app.add_middleware(
 
 # 데이터베이스 초기화
 init_db()
+
+try:
+    _seed_db = SessionLocal()
+    seed_default_user(_seed_db)
+finally:
+    try:
+        _seed_db.close()
+    except Exception:
+        pass
+
+
+def seed_default_user(db: Session):
+    """
+    개발 기본 계정(user@example.com)을 Expert 구매 상태로 시드합니다.
+    - Expert 구매 1회(5,000 credits) 없으면 생성
+    - 사용자 계정 없으면 생성
+    - 이미 구매 이력이 있으면 중복 지급하지 않음
+    """
+    email = "user@example.com"
+    plan_key = "expert"
+    credits_granted = 5000
+    amount_krw = 300000
+
+    user = db.query(UserAccount).filter(UserAccount.email == email).first()
+    if not user:
+        user = UserAccount(email=email, plan_key=plan_key, credits_balance=0)
+        db.add(user)
+        db.flush()
+
+    existing_purchase = (
+        db.query(Purchase)
+        .filter(Purchase.email == email, Purchase.plan_key == plan_key)
+        .first()
+    )
+
+    if not existing_purchase:
+        purchase = Purchase(
+            email=email,
+            plan_key=plan_key,
+            amount_krw=amount_krw,
+            credits_granted=credits_granted,
+        )
+        db.add(purchase)
+
+        user.plan_key = plan_key
+        user.credits_balance = (user.credits_balance or 0) + credits_granted
+
+        db.add(
+            CreditLedger(
+                email=email,
+                delta=credits_granted,
+                reason="purchase",
+                filename=None,
+                page_key=-1,
+                save_session_id=f"seed-{plan_key}",
+                meta=json.dumps(
+                    {"plan_key": plan_key, "amount_krw": amount_krw, "credits_granted": credits_granted},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+
+    db.commit()
 
 
 def clean_ocr_response(text: str) -> str:
@@ -704,6 +767,8 @@ async def save_ocr_result(
     cropped_image: str = Form(...),
     filename: str = Form(...),
     page_number: int = Form(None),
+    user_email: str = Form(None),
+    save_session_id: str = Form(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -711,6 +776,60 @@ async def save_ocr_result(
     '저장' 버튼을 눌렀을 때만 호출됩니다.
     """
     try:
+        # 사용자 식별(프론트의 useAuth 기준)
+        email = (user_email or "user@example.com").strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="User email is required")
+
+        # 사용자 계정 upsert
+        user = db.query(UserAccount).filter(UserAccount.email == email).first()
+        if not user:
+            user = UserAccount(email=email, plan_key=None, credits_balance=0)
+            db.add(user)
+            db.flush()
+
+        # 저장(1회 클릭) 내에서 '페이지당 1회'만 차감
+        # page_key: PDF면 page_number, 이미지 등 page_number None이면 -1로 취급(=1페이지)
+        page_key = page_number if page_number is not None else -1
+        session_id = (save_session_id or "").strip() or f"legacy-{filename}"
+        reason = "ocr_save_page_charge"
+
+        # 동일 (email, session_id, page_key) 중복 차감 방지
+        existing_charge = (
+            db.query(CreditLedger)
+            .filter(
+                CreditLedger.email == email,
+                CreditLedger.reason == reason,
+                CreditLedger.save_session_id == session_id,
+                CreditLedger.page_key == page_key,
+            )
+            .first()
+        )
+
+        if not existing_charge:
+            cost_per_page = 10
+            if (user.credits_balance or 0) < cost_per_page:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"크레딧이 부족합니다. 필요: {cost_per_page}, 보유: {user.credits_balance or 0}",
+                )
+
+            user.credits_balance = (user.credits_balance or 0) - cost_per_page
+            db.add(
+                CreditLedger(
+                    email=email,
+                    delta=-cost_per_page,
+                    reason=reason,
+                    filename=filename,
+                    page_key=page_key,
+                    save_session_id=session_id,
+                    meta=json.dumps(
+                        {"cost_per_page": cost_per_page, "page_number": page_number},
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+
         ocr_record = OCRRecord(
             extracted_text=extracted_text,
             cropped_image=cropped_image,
@@ -728,11 +847,48 @@ async def save_ocr_result(
             "cropped_image": ocr_record.cropped_image,
             "timestamp": ocr_record.timestamp.isoformat(),
             "filename": ocr_record.filename,
-            "page_number": ocr_record.page_number
+            "page_number": ocr_record.page_number,
+            "user_email": email,
+            "credits_balance": user.credits_balance,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save OCR result: {str(e)}")
+
+
+@app.get("/billing/user")
+async def get_billing_user(email: str, db: Session = Depends(get_db)):
+    user = db.query(UserAccount).filter(UserAccount.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"email": user.email, "plan_key": user.plan_key, "credits_balance": user.credits_balance}
+
+
+@app.get("/billing/usage")
+async def get_billing_usage(email: str, limit: int = 100, db: Session = Depends(get_db)):
+    rows = (
+        db.query(CreditLedger)
+        .filter(CreditLedger.email == email)
+        .order_by(CreditLedger.created_at.desc())
+        .limit(max(1, min(limit, 500)))
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "email": r.email,
+            "delta": r.delta,
+            "reason": r.reason,
+            "filename": r.filename,
+            "page_key": r.page_key,
+            "save_session_id": r.save_session_id,
+            "meta": r.meta,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
 
 @app.delete("/history/file/{filename}")
