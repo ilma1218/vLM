@@ -181,6 +181,21 @@ export default function Home() {
       return;
     }
     
+    // 입력값이 비어있을 때 Backspace를 누르면 마지막 태그 삭제 (태그 입력 UX)
+    if (e.key === 'Backspace' && keyInputValue.length === 0) {
+      // 커서가 입력창 맨 앞에 있을 때만 동작 (안전장치)
+      const target = e.currentTarget;
+      const cursorAtStart =
+        (typeof target.selectionStart === 'number' ? target.selectionStart : 0) === 0 &&
+        (typeof target.selectionEnd === 'number' ? target.selectionEnd : 0) === 0;
+
+      if (cursorAtStart) {
+        e.preventDefault();
+        setExtractKeys(prev => (prev.length > 0 ? prev.slice(0, -1) : prev));
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && keyInputValue.trim()) {
       e.preventDefault();
       addKeyTag(keyInputValue);
