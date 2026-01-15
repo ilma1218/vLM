@@ -372,6 +372,17 @@ export default function PricingPage() {
                 </div>
               </div>
             </div>
+
+            {/* Time Savings 강조 */}
+            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-xl p-4 text-white">
+              <div className="text-sm font-semibold opacity-90 mb-1">시간 절약 (핵심)</div>
+              <div className="text-2xl md:text-3xl font-extrabold">
+                25시간 → 30분, 약 24시간 30분 절약
+              </div>
+              <div className="mt-2 text-sm opacity-90">
+                사람 기준 3일 가까운 작업을, 반나절도 안 되는 시간으로 단축합니다.
+              </div>
+            </div>
           </div>
 
           <div className="mt-6">
