@@ -3040,6 +3040,11 @@ export default function Home() {
                           throw new Error(message);
                         }
                       }
+
+                      // 저장으로 인해 크레딧이 변했을 수 있으므로 Navbar 크레딧/이용내역을 즉시 갱신
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new Event('billing:refresh'));
+                      }
                       
                       // 성공 메시지 표시
                       const successMsg = t('workspace.rightInspector.actions.saveSuccess');

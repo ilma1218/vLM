@@ -74,6 +74,16 @@ export default function Navbar() {
     }
   }, [isAuthenticated, userEmail]);
 
+  // OCR 저장 등으로 크레딧이 변했을 때 즉시 갱신하기 위한 커스텀 이벤트
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onRefresh = () => {
+      fetchBilling();
+    };
+    window.addEventListener('billing:refresh', onRefresh);
+    return () => window.removeEventListener('billing:refresh', onRefresh);
+  }, [isAuthenticated, fetchBilling]);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchBilling();
@@ -110,7 +120,10 @@ export default function Navbar() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setShowBillingModal(true)}
+                    onClick={() => {
+                      setShowBillingModal(true);
+                      fetchBilling();
+                    }}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
                     title="크레딧/이용내역"
                   >
