@@ -36,15 +36,6 @@ app.add_middleware(
 # 데이터베이스 초기화
 init_db()
 
-try:
-    _seed_db = SessionLocal()
-    seed_default_user(_seed_db)
-finally:
-    try:
-        _seed_db.close()
-    except Exception:
-        pass
-
 
 def seed_default_user(db: Session):
     """
@@ -98,6 +89,26 @@ def seed_default_user(db: Session):
         )
 
     db.commit()
+
+
+@app.on_event("startup")
+def _startup_seed_user():
+    """
+    개발 편의: 서버 시작 시 기본 계정(user@example.com)을 Expert 구매 상태로 시드합니다.
+    - uvicorn reload 환경에서도 함수 정의 순서 문제 없이 안전하게 실행되도록 startup hook을 사용
+    """
+    db = SessionLocal()
+    try:
+        seed_default_user(db)
+        print("[billing] seeded default user: user@example.com (expert, 5000 credits)")
+    except Exception as e:
+        # 시드 실패가 서비스 전체를 죽이지 않도록 방어
+        print(f"[billing] seed_default_user failed: {e}")
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def clean_ocr_response(text: str) -> str:
