@@ -583,41 +583,76 @@ export default function Home() {
     };
   }, []);
 
-  const onCropComplete = useCallback((crop: PixelCrop, percentageCrop: PercentCrop) => {
+  const onCropComplete = useCallback((crop: Crop, percentageCrop?: PercentCrop) => {
     // 크롭이 변경되면 에러 메시지 초기화
     setError(null);
     
     // 크롭이 완료되면 즉시 currentCompletedCrop 설정
     // ReactCrop의 onComplete는 (pixelCrop, percentageCrop) 두 값을 제공
     // percentageCrop은 이미 % 단위 (0~100)로 계산되어 있으므로 이를 직접 사용
-    if (crop && crop.width > 0 && crop.height > 0) {
-    if (imgRef.current) {
-        // percentageCrop을 0.0~1.0 범위의 비율로 변환
-        const cropRatio = {
-          x: percentageCrop.x / 100,
-          y: percentageCrop.y / 100,
-          width: percentageCrop.width / 100,
-          height: percentageCrop.height / 100,
-        };
-        
-        // 현재 화면에 보이는 이미지 크기 (getBoundingClientRect 사용)
-        // 중요: naturalWidth가 아닌 현재 보이는 크기를 사용
-        const rect = imgRef.current.getBoundingClientRect();
-        const displayedWidth = rect.width;
-        const displayedHeight = rect.height;
-        
-        // 비율을 포함한 확장된 crop 객체 저장
-        setCurrentCompletedCrop({
-          ...crop,
-          // @ts-ignore - cropRatio를 임시로 저장 (0.0~1.0 범위)
-          _cropRatio: cropRatio,
-          _displayedWidth: displayedWidth,
-          _displayedHeight: displayedHeight,
-        });
-      } else {
-        setCurrentCompletedCrop(crop);
-      }
+    if (!crop || crop.width <= 0 || crop.height <= 0) return;
+
+    const image = imgRef.current;
+    if (!image) {
+      // 이미지 ref가 아직 없으면 일단 그대로 저장(최소한 버튼은 뜨게)
+      setCurrentCompletedCrop(crop as unknown as PixelCrop);
+      return;
     }
+
+    // 현재 화면에 보이는 이미지 크기 (getBoundingClientRect 사용)
+    const rect = image.getBoundingClientRect();
+    const displayedWidth = rect.width;
+    const displayedHeight = rect.height;
+
+    // 0.0~1.0 범위의 비율로 통일
+    let cropRatio: { x: number; y: number; width: number; height: number } | null = null;
+
+    if (percentageCrop && typeof percentageCrop.x === 'number') {
+      // react-image-crop 10.x: (pixelCrop, percentCrop) 형태
+      cropRatio = {
+        x: percentageCrop.x / 100,
+        y: percentageCrop.y / 100,
+        width: percentageCrop.width / 100,
+        height: percentageCrop.height / 100,
+      };
+    } else if ((crop as Crop).unit === '%') {
+      // 혹시 첫 인자가 % crop으로 들어오는 경우도 방어
+      cropRatio = {
+        x: crop.x / 100,
+        y: crop.y / 100,
+        width: crop.width / 100,
+        height: crop.height / 100,
+      };
+    } else {
+      // px crop만 있는 경우: 화면 기준 비율 계산
+      cropRatio = {
+        x: displayedWidth > 0 ? crop.x / displayedWidth : 0,
+        y: displayedHeight > 0 ? crop.y / displayedHeight : 0,
+        width: displayedWidth > 0 ? crop.width / displayedWidth : 0,
+        height: displayedHeight > 0 ? crop.height / displayedHeight : 0,
+      };
+    }
+
+    // PixelCrop으로 정규화(우측 패널의 areaSize 표기는 px가 기대값)
+    const pixelCrop: PixelCrop =
+      crop.unit === '%'
+        ? {
+            unit: 'px',
+            x: cropRatio.x * displayedWidth,
+            y: cropRatio.y * displayedHeight,
+            width: cropRatio.width * displayedWidth,
+            height: cropRatio.height * displayedHeight,
+          }
+        : (crop as PixelCrop);
+
+    // 비율을 포함한 확장된 crop 객체 저장
+    setCurrentCompletedCrop({
+      ...pixelCrop,
+      // @ts-ignore - cropRatio를 임시로 저장 (0.0~1.0 범위)
+      _cropRatio: cropRatio,
+      _displayedWidth: displayedWidth,
+      _displayedHeight: displayedHeight,
+    });
   }, []);
 
   // 크롭 영역 드래그 시작
