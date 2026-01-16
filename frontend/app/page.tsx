@@ -2172,6 +2172,39 @@ export default function Home() {
                     setCurrentCrop(percentCrop);
                     // 크롭이 변경되면 에러 메시지 초기화
                     setError(null);
+
+                    // onComplete가 환경/타이밍에 따라 안정적으로 호출되지 않는 케이스가 있어
+                    // onChange에서도 즉시 currentCompletedCrop을 구성해 '영역 추가' UI가 바로 뜨도록 보강
+                    if (!imgRef.current) return;
+                    if (!percentCrop || percentCrop.width <= 0 || percentCrop.height <= 0) return;
+
+                    const rect = imgRef.current.getBoundingClientRect();
+                    const displayedWidth = rect.width;
+                    const displayedHeight = rect.height;
+                    if (displayedWidth <= 0 || displayedHeight <= 0) return;
+
+                    const cropRatio = {
+                      x: percentCrop.x / 100,
+                      y: percentCrop.y / 100,
+                      width: percentCrop.width / 100,
+                      height: percentCrop.height / 100,
+                    };
+
+                    const pixelCrop: PixelCrop = {
+                      unit: 'px',
+                      x: cropRatio.x * displayedWidth,
+                      y: cropRatio.y * displayedHeight,
+                      width: cropRatio.width * displayedWidth,
+                      height: cropRatio.height * displayedHeight,
+                    };
+
+                    setCurrentCompletedCrop({
+                      ...pixelCrop,
+                      // @ts-ignore - cropRatio를 임시로 저장 (0.0~1.0 범위)
+                      _cropRatio: cropRatio,
+                      _displayedWidth: displayedWidth,
+                      _displayedHeight: displayedHeight,
+                    });
                   }}
                   onComplete={onCropComplete}
                   aspect={undefined}
