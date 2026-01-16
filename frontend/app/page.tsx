@@ -781,14 +781,27 @@ export default function Home() {
     const area = currentAreas.find(a => a.id === areaId);
     
     if (area && imgRef.current) {
-      // 클릭한 영역을 현재 크롭으로 로드
-      setCurrentCrop({
-        unit: 'px',
-        x: area.crop.x,
-        y: area.crop.y,
-        width: area.crop.width,
-        height: area.crop.height,
-      });
+      // 편집 모드에서는 "저장된 오버레이"와 "ReactCrop 박스"가 이중으로 떠서
+      // 서로 따로 움직이는 현상이 생길 수 있으므로, ReactCrop 한 개만 조작되도록
+      // 저장된 영역을 % crop으로 로드해 ReactCrop이 단일 소스로 동작하게 만든다.
+      if (area.cropPercent) {
+        setCurrentCrop({
+          unit: '%',
+          x: area.cropPercent.x,
+          y: area.cropPercent.y,
+          width: area.cropPercent.width,
+          height: area.cropPercent.height,
+        });
+      } else {
+        // 이전 호환: cropPercent가 없으면 px 기반으로 로드
+        setCurrentCrop({
+          unit: 'px',
+          x: area.crop.x,
+          y: area.crop.y,
+          width: area.crop.width,
+          height: area.crop.height,
+        });
+      }
       setCurrentCompletedCrop(area.completedCrop);
       setEditingAreaId(areaId);
     }
@@ -2247,6 +2260,9 @@ export default function Home() {
                 {/* 저장된 크롭 영역들을 오버레이로 표시 - 다중 크롭 지원 */}
                 {/* 이 div들은 위쪽의 relative 부모를 기준으로 좌표를 잡습니다 */}
                 {imgRef.current && (() => {
+                  // 편집 모드에서는 저장된 오버레이를 숨기고 ReactCrop 박스만 보이게 해서
+                  // "저장된 영역"과 "크롭 박스"가 따로 움직이는 이중 UI를 방지한다.
+                  if (editingAreaId) return null;
                   const pageKey = isPdf ? currentPage : undefined;
                   const areas = cropAreasByPage.get(pageKey) || [];
                   console.log('Rendering crop areas for page', pageKey, ':', areas.map(a => a.id));
@@ -2404,6 +2420,17 @@ export default function Home() {
                             >
                               <X className="w-3 h-3 mr-1" />
                               {t('common.cancel')}
+                            </button>
+                          )}
+                          {editingAreaId && (
+                            <button
+                              onClick={() => {
+                                removeCropArea(editingAreaId);
+                              }}
+                              className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-red-500 rounded-md shadow-sm text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              {t('crop.delete')}
                             </button>
                           )}
                           <button
