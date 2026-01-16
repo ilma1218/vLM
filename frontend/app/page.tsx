@@ -809,10 +809,11 @@ export default function Home() {
 
   // 크롭 영역 추가/업데이트
   // 실제 crop 영역 추가 로직 (모달에서 호출)
-  const applyCropArea = useCallback((applyToAllPages: boolean) => {
-    if (!pendingCropData) return;
+  const applyCropArea = useCallback((applyToAllPages: boolean, cropData?: { cropPercent: { x: number; y: number; width: number; height: number }; finalCrop: PixelCrop }) => {
+    const resolved = cropData || pendingCropData;
+    if (!resolved) return;
     
-    const { cropPercent, finalCrop } = pendingCropData;
+    const { cropPercent, finalCrop } = resolved;
     const pageKey = isPdf ? currentPage : undefined;
     
     setCropAreasByPage(prev => {
@@ -941,8 +942,7 @@ export default function Home() {
       setShowApplyToAllModal(true);
     } else {
       // 이미지이거나 단일 페이지이거나 편집 중이면 바로 적용
-      setPendingCropData({ cropPercent, finalCrop });
-      applyCropArea(false);
+      applyCropArea(false, { cropPercent, finalCrop });
     }
   }, [currentCompletedCrop, isPdf, currentPage, editingAreaId, ocrMode, totalPages, applyCropArea]);
 
