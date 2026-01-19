@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query, Body
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Form, Query, Body, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -13,10 +13,12 @@ import tempfile
 import os
 from pathlib import Path
 from PIL import Image
-from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys, UserAccount, Purchase, CreditLedger, SessionLocal
+from database import init_db, get_db, OCRRecord, Prompt, ExtractKeys, UserAccount, Purchase, CreditLedger, SessionLocal, UserAuth
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from typing import Optional
+from jose import jwt, JWTError
+from passlib.context import CryptContext
 
 app = FastAPI(title="Region-Specific OCR Service")
 
@@ -35,6 +37,144 @@ app.add_middleware(
 
 # 데이터베이스 초기화
 init_db()
+
+#
+# Auth (ID/Password + JWT)
+#
+# bcrypt는 환경에 따라(passlib/bcrypt 버전 조합) 백엔드 호환성 문제가 발생할 수 있어
+# 기본 내장 구현으로 안정적인 pbkdf2_sha256을 사용합니다.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+# 개발 기본값. 운영 환경에서는 반드시 환경변수로 설정하세요.
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "10080"))  # 기본 7일
+
+
+def _hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    return pwd_context.verify(password, password_hash)
+
+
+def _create_access_token(email: str) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=JWT_EXPIRES_MINUTES)
+    payload = {"sub": email, "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def _get_email_from_bearer(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    if not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def require_auth_email(authorization: Optional[str]) -> str:
+    email = _get_email_from_bearer(authorization)
+    if not email:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    return email.strip().lower()
+
+
+class AuthSignupRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthUser(BaseModel):
+    email: str
+    name: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: AuthUser
+
+
+@app.post("/auth/signup", response_model=AuthResponse)
+def auth_signup(payload: AuthSignupRequest, db: Session = Depends(get_db)):
+    email = (payload.email or "").strip().lower()
+    password = payload.password or ""
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="올바른 이메일(아이디)을 입력해주세요.")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="비밀번호는 최소 6자 이상이어야 합니다.")
+
+    existing_auth = db.query(UserAuth).filter(UserAuth.email == email).first()
+    if existing_auth:
+        raise HTTPException(status_code=409, detail="이미 가입된 아이디입니다.")
+
+    # 크레딧/플랜(UserAccount)이 이미 있더라도(예: user@example.com 시드),
+    # 비밀번호 인증(UserAuth)이 없다면 회원가입(비밀번호 설정)을 허용합니다.
+    user_account = db.query(UserAccount).filter(UserAccount.email == email).first()
+    if not user_account:
+        user_account = UserAccount(email=email, plan_key=None, credits_balance=0)
+        db.add(user_account)
+
+    auth_row = UserAuth(email=email, password_hash=_hash_password(password))
+    db.add(auth_row)
+    db.commit()
+
+    token = _create_access_token(email)
+    return AuthResponse(
+        access_token=token,
+        user=AuthUser(email=email, name=email.split("@")[0]),
+    )
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def auth_login(payload: AuthLoginRequest, db: Session = Depends(get_db)):
+    email = (payload.email or "").strip().lower()
+    password = payload.password or ""
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="아이디/비밀번호를 입력해주세요.")
+
+    auth_row = db.query(UserAuth).filter(UserAuth.email == email).first()
+    if not auth_row or not _verify_password(password, auth_row.password_hash):
+        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
+
+    token = _create_access_token(email)
+    return AuthResponse(
+        access_token=token,
+        user=AuthUser(email=email, name=email.split("@")[0]),
+    )
+
+
+@app.get("/auth/me", response_model=AuthUser)
+def auth_me(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    email = _get_email_from_bearer(authorization)
+    if not email:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+
+    # 계정 존재 여부 확인 (크레딧/플랜 관리용)
+    user_account = db.query(UserAccount).filter(UserAccount.email == email).first()
+    if not user_account:
+        # 토큰은 유효하지만 계정이 없다면 생성(방어)
+        user_account = UserAccount(email=email, plan_key=None, credits_balance=0)
+        db.add(user_account)
+        db.commit()
+
+    return AuthUser(email=email, name=email.split("@")[0])
 
 
 def seed_default_user(db: Session):
@@ -533,13 +673,20 @@ async def ocr_image(
 
 
 @app.get("/history")
-async def get_history(grouped: bool = False, include_records: bool = False, db: Session = Depends(get_db)):
+async def get_history(
+    grouped: bool = False,
+    include_records: bool = False,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     """
     OCR 히스토리를 반환합니다.
     grouped=True이면 파일별로 그룹화하여 반환합니다.
     include_records=True이면 각 그룹에 records 배열을 포함합니다 (기본값: False, 성능 최적화).
     """
     try:
+        email = require_auth_email(authorization)
+
         if grouped:
             # 통계만 필요하므로 필요한 컬럼만 선택하여 성능 최적화
             from sqlalchemy import select
@@ -548,10 +695,11 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
             # 최근 30일 데이터만 가져와서 성능 개선 (필요시 조정 가능)
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             records = db.query(OCRRecord).filter(
+                OCRRecord.email == email,
                 OCRRecord.timestamp >= thirty_days_ago
             ).order_by(OCRRecord.timestamp.desc()).all()
         else:
-            records = db.query(OCRRecord).order_by(OCRRecord.timestamp.desc()).all()
+            records = db.query(OCRRecord).filter(OCRRecord.email == email).order_by(OCRRecord.timestamp.desc()).all()
         
         if grouped:
             # 파일명별로 먼저 분류
@@ -598,15 +746,60 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
                     if images_count > 0:
                         unique_pages_count = max(unique_pages_count, 1)  # 이미지가 있으면 최소 1페이지
                     
-                    # 절약 금액 계산 (영역 수 × 페이지 수 × 1분) / 60 × 최저시급
+                    # 절약 시간/금액 계산
+                    # - 일반 모드: (영역 × 페이지) 1건당 1분
+                    # - 고급 모드: key:value 1개당 10초 × 페이지수
+                    #   (히스토리에는 모드가 따로 저장되지 않으므로, extracted_text가 JSON(dict)로 파싱되면 "고급"으로 추정)
                     total_records = len(daily_records)
-                    time_saved_minutes = total_records * unique_pages_count * 1
+
+                    # area 추정: (총 레코드 = 영역×페이지) 라는 전제에서 영역 수를 역산
+                    areas_est = 0
+                    if unique_pages_count and unique_pages_count > 0:
+                        areas_est = max(1, int(round(total_records / unique_pages_count))) if total_records > 0 else 0
+                    else:
+                        areas_est = total_records
+
+                    # JSON key:value 개수 추정
+                    kv_counts = []
+                    for r in daily_records:
+                        txt = (r.extracted_text or "").strip()
+                        if not txt:
+                            continue
+                        try:
+                            obj = json.loads(txt)
+                            if isinstance(obj, dict):
+                                kv_counts.append(len(obj.keys()))
+                        except Exception:
+                            continue
+
+                    # 일반 모드(문서 전사) 기준: 180 CPM (분당 180글자)
+                    TYPING_CPM = 180
+                    total_chars = 0
+                    for r in daily_records:
+                        total_chars += len((r.extracted_text or ""))
+
+                    is_advanced_est = len(kv_counts) > 0
+                    if is_advanced_est:
+                        # 대표 key:value 개수(중앙값)
+                        kv_counts_sorted = sorted(kv_counts)
+                        kv_est = kv_counts_sorted[len(kv_counts_sorted) // 2]
+                        time_saved_minutes = (kv_est * unique_pages_count * 10) / 60.0
+                        time_basis = "advanced"
+                    else:
+                        # 글자 수 기반 타이핑 시간(공백 포함)으로 산정
+                        time_saved_minutes = (float(total_chars) / float(TYPING_CPM)) if TYPING_CPM > 0 else 0.0
+                        time_basis = "standard_chars"
+
                     money_saved = (time_saved_minutes / 60) * MINIMUM_WAGE_PER_HOUR
                     
                     current_group = {
                         "filename": filename,
                         "total_records": total_records,
                         "pages_count": unique_pages_count,
+                        "areas_count": areas_est,
+                        "time_saved_minutes": round(time_saved_minutes, 2),
+                        "time_basis": time_basis,
+                        "total_chars": int(total_chars),
                         "money_saved": round(money_saved, 2),
                         "latest_timestamp": max(r.timestamp for r in daily_records),
                         "first_timestamp": min(r.timestamp for r in daily_records),
@@ -654,6 +847,8 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
                 }
                 for record in records
             ]
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         error_detail = f"Failed to fetch history: {str(e)}\n{traceback.format_exc()}"
@@ -662,12 +857,13 @@ async def get_history(grouped: bool = False, include_records: bool = False, db: 
 
 
 @app.get("/history/{record_id}")
-async def get_record(record_id: int, db: Session = Depends(get_db)):
+async def get_record(record_id: int, authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     """
     단일 OCR 기록을 조회합니다. 이미지 포함.
     """
     try:
-        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        email = require_auth_email(authorization)
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id, OCRRecord.email == email).first()
         if not record:
             raise HTTPException(status_code=404, detail="Record not found")
         
@@ -686,12 +882,18 @@ async def get_record(record_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/history/{record_id}")
-async def update_record(record_id: int, extracted_text: str = Form(...), db: Session = Depends(get_db)):
+async def update_record(
+    record_id: int,
+    extracted_text: str = Form(...),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     """
     OCR 기록의 텍스트를 수정합니다.
     """
     try:
-        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        email = require_auth_email(authorization)
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id, OCRRecord.email == email).first()
         if not record:
             raise HTTPException(status_code=404, detail="Record not found")
         
@@ -714,12 +916,13 @@ async def update_record(record_id: int, extracted_text: str = Form(...), db: Ses
 
 
 @app.delete("/history/{record_id}")
-async def delete_record(record_id: int, db: Session = Depends(get_db)):
+async def delete_record(record_id: int, authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     """
     OCR 기록을 삭제합니다.
     """
     try:
-        record = db.query(OCRRecord).filter(OCRRecord.id == record_id).first()
+        email = require_auth_email(authorization)
+        record = db.query(OCRRecord).filter(OCRRecord.id == record_id, OCRRecord.email == email).first()
         if not record:
             raise HTTPException(status_code=404, detail="Record not found")
         
@@ -736,6 +939,7 @@ async def delete_record(record_id: int, db: Session = Depends(get_db)):
 @app.post("/history/delete-multiple")
 async def delete_multiple_records(
     record_ids: List[int] = Body(..., description="삭제할 레코드 ID 목록"),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -745,8 +949,9 @@ async def delete_multiple_records(
         if not record_ids or len(record_ids) == 0:
             raise HTTPException(status_code=400, detail="No record IDs provided")
         
-        # 존재하는 레코드만 조회
-        records = db.query(OCRRecord).filter(OCRRecord.id.in_(record_ids)).all()
+        email = require_auth_email(authorization)
+        # 존재하는 레코드만 조회 (본인 소유만)
+        records = db.query(OCRRecord).filter(OCRRecord.id.in_(record_ids), OCRRecord.email == email).all()
         
         if not records:
             raise HTTPException(status_code=404, detail="No records found")
@@ -778,8 +983,8 @@ async def save_ocr_result(
     cropped_image: str = Form(...),
     filename: str = Form(...),
     page_number: int = Form(None),
-    user_email: str = Form(None),
     save_session_id: str = Form(None),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -787,10 +992,8 @@ async def save_ocr_result(
     '저장' 버튼을 눌렀을 때만 호출됩니다.
     """
     try:
-        # 사용자 식별(프론트의 useAuth 기준)
-        email = (user_email or "user@example.com").strip()
-        if not email:
-            raise HTTPException(status_code=400, detail="User email is required")
+        # 로그인 사용자 기준 저장
+        email = require_auth_email(authorization)
 
         # 사용자 계정 upsert
         user = db.query(UserAccount).filter(UserAccount.email == email).first()
@@ -842,6 +1045,8 @@ async def save_ocr_result(
             )
 
         ocr_record = OCRRecord(
+            email=email,
+            save_session_id=session_id,
             extracted_text=extracted_text,
             cropped_image=cropped_image,
             timestamp=datetime.utcnow(),
@@ -870,7 +1075,8 @@ async def save_ocr_result(
 
 
 @app.get("/billing/user")
-async def get_billing_user(email: str, db: Session = Depends(get_db)):
+async def get_billing_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    email = require_auth_email(authorization)
     user = db.query(UserAccount).filter(UserAccount.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -878,7 +1084,114 @@ async def get_billing_user(email: str, db: Session = Depends(get_db)):
 
 
 @app.get("/billing/usage")
-async def get_billing_usage(email: str, limit: int = 100, db: Session = Depends(get_db)):
+async def get_billing_usage(
+    authorization: Optional[str] = Header(None),
+    limit: int = 100,
+    mode: str = "raw",
+    db: Session = Depends(get_db),
+):
+    email = require_auth_email(authorization)
+
+    mode = (mode or "raw").strip().lower()
+    if mode not in ("raw", "file"):
+        raise HTTPException(status_code=400, detail="invalid mode")
+
+    if mode == "file":
+        # 파일(업로드/저장 세션) 단위 집계
+        # - OCR 차감: (filename, save_session_id) 단위로 pages_count/areas_per_page/delta를 한 줄로 반환
+        # - 구매 등 기타: 기존 ledger row 형태로 반환 (filename 없을 수 있음)
+        from sqlalchemy import func, case
+
+        max_limit = max(1, min(limit, 200))
+
+        # 최근 OCR 차감 세션들부터 가져오기
+        ocr_groups = (
+            db.query(
+                CreditLedger.filename.label("filename"),
+                CreditLedger.save_session_id.label("save_session_id"),
+                func.sum(CreditLedger.delta).label("delta_sum"),
+                func.max(CreditLedger.created_at).label("created_at"),
+            )
+            .filter(
+                CreditLedger.email == email,
+                CreditLedger.reason == "ocr_save_page_charge",
+                CreditLedger.filename.isnot(None),
+                CreditLedger.save_session_id.isnot(None),
+            )
+            .group_by(CreditLedger.filename, CreditLedger.save_session_id)
+            .order_by(func.max(CreditLedger.created_at).desc())
+            .limit(max_limit)
+            .all()
+        )
+
+        results = []
+        for g in ocr_groups:
+            # 이 세션에서 저장된 OCRRecord로 pages/areas 계산
+            rec_stats = (
+                db.query(
+                    func.count(OCRRecord.id).label("total_records"),
+                    func.count(func.distinct(OCRRecord.page_number)).label("distinct_pages"),
+                    func.sum(case((OCRRecord.page_number.is_(None), 1), else_=0)).label("null_pages"),
+                )
+                .filter(
+                    OCRRecord.email == email,
+                    OCRRecord.filename == g.filename,
+                    OCRRecord.save_session_id == g.save_session_id,
+                )
+                .one()
+            )
+
+            distinct_pages = int(rec_stats.distinct_pages or 0)
+            has_null_page = (rec_stats.null_pages or 0) > 0
+            pages_count = distinct_pages + (1 if has_null_page else 0)
+            if pages_count <= 0:
+                pages_count = 1
+
+            total_records = int(rec_stats.total_records or 0)
+            # “몇개 영역”은 페이지당 영역 개수로 표기(=총 레코드 / 페이지수)
+            areas_per_page = (total_records / pages_count) if pages_count else 0
+
+            results.append(
+                {
+                    "kind": "ocr",
+                    "filename": g.filename,
+                    "pages_count": pages_count,
+                    "areas_per_page": round(areas_per_page, 2),
+                    "delta": int(g.delta_sum or 0),
+                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                    "save_session_id": g.save_session_id,
+                }
+            )
+
+        # 최근 구매/지급(ocr 이외)도 함께 보여주기 (limit의 1/2 정도)
+        other_rows = (
+            db.query(CreditLedger)
+            .filter(CreditLedger.email == email, CreditLedger.reason != "ocr_save_page_charge")
+            .order_by(CreditLedger.created_at.desc())
+            .limit(max(1, max_limit // 2))
+            .all()
+        )
+        for r in other_rows:
+            results.append(
+                {
+                    "kind": "ledger",
+                    "delta": r.delta,
+                    "reason": r.reason,
+                    "filename": r.filename,
+                    "page_key": r.page_key,
+                    "save_session_id": r.save_session_id,
+                    "meta": r.meta,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+            )
+
+        # 전체를 created_at 기준으로 섞어 정렬
+        def _ts(x):
+            return x.get("created_at") or ""
+
+        results.sort(key=_ts, reverse=True)
+        return results[:max_limit]
+
     rows = (
         db.query(CreditLedger)
         .filter(CreditLedger.email == email)
@@ -902,10 +1215,78 @@ async def get_billing_usage(email: str, limit: int = 100, db: Session = Depends(
     ]
 
 
+class BillingPurchaseRequest(BaseModel):
+    plan_key: str
+
+
+@app.post("/billing/purchase")
+async def billing_purchase(payload: BillingPurchaseRequest, authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """
+    임시 구매 API (결제 없이 성공 처리)
+    - 로그인 사용자 기준으로 plan 설정 + credits 지급 + ledger 기록
+    """
+    email = require_auth_email(authorization)
+    plan_key = (payload.plan_key or "").strip()
+    if not plan_key:
+        raise HTTPException(status_code=400, detail="plan_key is required")
+
+    # 임시 요금제 매핑 (필요 시 조정)
+    plan_catalog = {
+        "free": {"credits": 0, "amount_krw": 0},
+        "pro": {"credits": 1000, "amount_krw": 100000},
+        "expert": {"credits": 5000, "amount_krw": 300000},
+        "businessFlex": {"credits": 10000, "amount_krw": 300000},
+        "enterprise": {"credits": 999999999, "amount_krw": None},
+    }
+    if plan_key not in plan_catalog:
+        raise HTTPException(status_code=400, detail="invalid plan_key")
+
+    plan = plan_catalog[plan_key]
+    credits_granted = int(plan["credits"])
+    amount_krw = plan["amount_krw"]
+
+    user = db.query(UserAccount).filter(UserAccount.email == email).first()
+    if not user:
+        user = UserAccount(email=email, plan_key=None, credits_balance=0)
+        db.add(user)
+        db.flush()
+
+    # 구매/지급 기록
+    db.add(
+        Purchase(
+            email=email,
+            plan_key=plan_key,
+            amount_krw=amount_krw,
+            credits_granted=credits_granted,
+        )
+    )
+    user.plan_key = plan_key
+    user.credits_balance = (user.credits_balance or 0) + credits_granted
+
+    db.add(
+        CreditLedger(
+            email=email,
+            delta=credits_granted,
+            reason="purchase_mock",
+            filename=None,
+            page_key=-1,
+            save_session_id=f"mock-{plan_key}-{int(datetime.utcnow().timestamp())}",
+            meta=json.dumps(
+                {"plan_key": plan_key, "amount_krw": amount_krw, "credits_granted": credits_granted},
+                ensure_ascii=False,
+            ),
+        )
+    )
+
+    db.commit()
+    return {"email": user.email, "plan_key": user.plan_key, "credits_balance": user.credits_balance, "credits_granted": credits_granted}
+
+
 @app.delete("/history/file/{filename}")
 async def delete_file_records(
     filename: str, 
     first_timestamp: str = Query(None, description="그룹의 첫 타임스탬프 (ISO 형식)"),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -915,8 +1296,9 @@ async def delete_file_records(
     try:
         from datetime import datetime
         
-        # 파일명으로 필터링
-        query = db.query(OCRRecord).filter(OCRRecord.filename == filename)
+        email = require_auth_email(authorization)
+        # 파일명 + 소유자 이메일로 필터링
+        query = db.query(OCRRecord).filter(OCRRecord.email == email, OCRRecord.filename == filename)
         
         # first_timestamp가 제공되면 해당 그룹만 삭제
         if first_timestamp:
@@ -1293,7 +1675,11 @@ class OCRFileChatRequest(BaseModel):
 
 
 @app.post("/chat/ocr-file")
-async def chat_with_ocr_file(payload: OCRFileChatRequest, db: Session = Depends(get_db)):
+async def chat_with_ocr_file(
+    payload: OCRFileChatRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     """
     OCR History의 '파일(그룹)' 단위로 OCR 텍스트를 DB에서 모아서,
     Qwen2.5-VL 7B 모델과 질의응답합니다.
@@ -1308,7 +1694,8 @@ async def chat_with_ocr_file(payload: OCRFileChatRequest, db: Session = Depends(
         if not payload.question or not payload.question.strip():
             raise HTTPException(status_code=400, detail="question is required")
 
-        query = db.query(OCRRecord).filter(OCRRecord.filename == payload.filename)
+        email = require_auth_email(authorization)
+        query = db.query(OCRRecord).filter(OCRRecord.email == email, OCRRecord.filename == payload.filename)
 
         # first_timestamp가 있으면 해당 날짜(일 단위) 그룹만 대상으로 제한
         if payload.first_timestamp:

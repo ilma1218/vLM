@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MessageCircle, Send, X } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface OCRRecordLite {
   id: number;
@@ -28,6 +29,7 @@ export function OcrChatModal(props: {
   backendUrl: string;
 }) {
   const { isOpen, onClose, fileGroup, backendUrl } = props;
+  const { token } = useAuth();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -80,6 +82,10 @@ export function OcrChatModal(props: {
     }
     const question = input.trim();
     if (!question) return;
+    if (!token) {
+      setError('대화하려면 로그인이 필요합니다.');
+      return;
+    }
 
     setIsSending(true);
     setError(null);
@@ -96,7 +102,7 @@ export function OcrChatModal(props: {
 
       const response = await fetch(`${backendUrl}/chat/ocr-file`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           filename: fileGroup.filename,
           first_timestamp: fileGroup.first_timestamp ?? null,
@@ -124,7 +130,7 @@ export function OcrChatModal(props: {
       setIsSending(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [backendUrl, fileGroup, hasRecords, input, messages]);
+  }, [backendUrl, fileGroup, hasRecords, input, messages, token]);
 
   if (!isOpen || !fileGroup) return null;
 

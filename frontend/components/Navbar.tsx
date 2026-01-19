@@ -26,11 +26,15 @@ type BillingUsageRow = {
   save_session_id?: string | null;
   meta?: string | null;
   created_at?: string | null;
+  // 집계 모드(file)
+  kind?: 'ocr' | 'ledger';
+  pages_count?: number;
+  areas_per_page?: number;
 };
 
 export default function Navbar() {
   const { t } = useLanguage();
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, token, logout } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [billingUser, setBillingUser] = useState<BillingUser | null>(null);
@@ -38,7 +42,7 @@ export default function Navbar() {
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
 
-  const userEmail = user?.email || 'user@example.com';
+  const userEmail = user?.email || '';
 
   const formatNumber = useCallback((n: number) => n.toLocaleString('ko-KR'), []);
   const formatTime = useCallback((iso?: string | null) => {
@@ -49,30 +53,30 @@ export default function Navbar() {
   }, []);
 
   const fetchBilling = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !token) return;
     try {
       setBillingLoading(true);
       setBillingError(null);
 
-      const userRes = await fetch(
-        `${BACKEND_URL}/billing/user?email=${encodeURIComponent(userEmail)}`
-      );
-      if (!userRes.ok) throw new Error('크레딧 정보를 불러오지 못했습니다.');
+      const userRes = await fetch(`${BACKEND_URL}/billing/user`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!userRes.ok) throw new Error(t('billing.errors.loadCreditsFailed'));
       const userData = (await userRes.json()) as BillingUser;
       setBillingUser(userData);
 
-      const usageRes = await fetch(
-        `${BACKEND_URL}/billing/usage?email=${encodeURIComponent(userEmail)}&limit=50`
-      );
-      if (!usageRes.ok) throw new Error('이용내역을 불러오지 못했습니다.');
+      const usageRes = await fetch(`${BACKEND_URL}/billing/usage?limit=50&mode=file`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!usageRes.ok) throw new Error(t('billing.errors.loadUsageFailed'));
       const usageData = (await usageRes.json()) as BillingUsageRow[];
       setBillingUsage(Array.isArray(usageData) ? usageData : []);
     } catch (e) {
-      setBillingError(e instanceof Error ? e.message : '불러오기 중 오류가 발생했습니다.');
+      setBillingError(e instanceof Error ? e.message : t('billing.errors.loadFailed'));
     } finally {
       setBillingLoading(false);
     }
-  }, [isAuthenticated, userEmail]);
+  }, [isAuthenticated, token]);
 
   // OCR 저장 등으로 크레딧이 변했을 때 즉시 갱신하기 위한 커스텀 이벤트
   useEffect(() => {
@@ -125,7 +129,7 @@ export default function Navbar() {
                       fetchBilling();
                     }}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
-                    title="크레딧/이용내역"
+                    title={t('billing.tooltip')}
                   >
                     <Coins className="w-4 h-4" />
                     {creditsLabel}
@@ -161,7 +165,7 @@ export default function Navbar() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl p-6 relative">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">크레딧 / 이용내역</h2>
+                <h2 className="text-xl font-bold text-gray-900">{t('billing.title')}</h2>
                 <p className="text-sm text-gray-600">{userEmail}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -172,13 +176,13 @@ export default function Navbar() {
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${billingLoading ? 'animate-spin' : ''}`} />
-                  새로고침
+                  {t('billing.refresh')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowBillingModal(false)}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
-                  aria-label="닫기"
+                  aria-label={t('common.close')}
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -193,60 +197,72 @@ export default function Navbar() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <div className="text-sm text-gray-700 font-semibold mb-1">현재 크레딧</div>
+                <div className="text-sm text-gray-700 font-semibold mb-1">{t('billing.currentCredits')}</div>
                 <div className="text-2xl font-extrabold text-blue-700">
                   {typeof billingUser?.credits_balance === 'number' ? formatNumber(billingUser.credits_balance) : '-'}
                 </div>
               </div>
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                <div className="text-sm text-gray-700 font-semibold mb-1">플랜</div>
+                <div className="text-sm text-gray-700 font-semibold mb-1">{t('billing.plan')}</div>
                 <div className="text-lg font-bold text-gray-900">
                   {billingUser?.plan_key || '-'}
                 </div>
               </div>
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                <div className="text-sm text-gray-700 font-semibold mb-1">차감 기준</div>
+                <div className="text-sm text-gray-700 font-semibold mb-1">{t('billing.deductionCriteria')}</div>
                 <div className="text-sm text-gray-700">
-                  저장 시 <span className="font-bold">페이지당 10 credits</span>
+                  <span className="font-bold">{t('billing.deductionRule')}</span>
                 </div>
               </div>
             </div>
 
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
-                <div className="text-sm font-bold text-gray-900">최근 이용내역 (최대 50건)</div>
+                <div className="text-sm font-bold text-gray-900">{t('billing.recentUsage')}</div>
                 {billingLoading && <div className="text-sm text-gray-600">불러오는 중...</div>}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-white border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">시간</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">구분</th>
-                      <th className="px-4 py-3 text-right font-semibold text-gray-700">증감</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">파일/페이지</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">{t('billing.table.time')}</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">{t('billing.table.file')}</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">{t('billing.table.pagesAreas')}</th>
+                      <th className="px-4 py-3 text-right font-semibold text-gray-700">{t('billing.table.delta')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {billingUsage.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
-                          이용내역이 없습니다.
+                          {t('billing.table.empty')}
                         </td>
                       </tr>
                     ) : (
                       billingUsage.map((row) => (
                         <tr key={row.id} className="bg-white">
                           <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{formatTime(row.created_at)}</td>
-                          <td className="px-4 py-3 text-gray-700">{row.reason}</td>
-                          <td className={`px-4 py-3 text-right font-bold ${row.delta < 0 ? 'text-red-700' : 'text-green-700'}`}>
-                            {row.delta < 0 ? '-' : '+'}{formatNumber(Math.abs(row.delta))}
+                          <td className="px-4 py-3 text-gray-700">
+                            <div className="truncate max-w-[360px]" title={row.filename || row.reason}>
+                              {row.kind === 'ocr' ? (row.filename || '-') : (row.reason || '-')}
+                            </div>
+                            {row.kind !== 'ocr' && row.filename && (
+                              <div className="text-xs text-gray-500 truncate max-w-[360px]">{row.filename}</div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-gray-700">
-                            <div className="truncate max-w-[360px]">
-                              {row.filename || '-'}
-                              {row.page_key !== -1 && <span className="text-gray-500"> · p{row.page_key}</span>}
-                            </div>
+                            {row.kind === 'ocr' ? (
+                              <div className="text-sm">
+                                <span className="font-semibold">{row.pages_count ?? '-'}페이지</span>
+                                <span className="text-gray-500"> · </span>
+                                <span className="font-semibold">{row.areas_per_page ?? '-'}영역/페이지</span>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-gray-500">-</div>
+                            )}
+                          </td>
+                          <td className={`px-4 py-3 text-right font-bold ${row.delta < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                            {row.delta < 0 ? '-' : '+'}{formatNumber(Math.abs(row.delta))}
                           </td>
                         </tr>
                       ))

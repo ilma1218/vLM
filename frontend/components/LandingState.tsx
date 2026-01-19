@@ -4,6 +4,7 @@ import { Upload, FileText, Layers, Sparkles, TrendingUp, Calculator } from 'luci
 import { useLanguage } from '@/lib/i18n';
 import { useState, useEffect } from 'react';
 import TimeSavingsCalculator from './TimeSavingsCalculator';
+import { useAuth } from '@/hooks/useAuth';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -12,7 +13,10 @@ interface FileGroup {
   records?: any[];  // 통계 화면에서는 사용하지 않으므로 optional
   total_records: number;
   pages_count?: number;
+  areas_count?: number;
   money_saved?: number;
+  time_saved_minutes?: number;
+  time_basis?: 'standard' | 'advanced';
   latest_timestamp: string;
   first_timestamp?: string;
   date?: string;
@@ -26,36 +30,27 @@ interface LandingStateProps {
 
 export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'standard' }: LandingStateProps) {
   const { t } = useLanguage();
+  const { isAuthenticated, token, user } = useAuth();
   const [recentFiles, setRecentFiles] = useState<FileGroup[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
 
-  // 사용자 아이디 가져오기 (localStorage에서 가져오거나 기본값 사용)
-  const getUserId = (): string => {
-    if (typeof window !== 'undefined') {
-      const userId = localStorage.getItem('userId');
-      if (userId) {
-        // 아이디를 마스킹 (예: chr**)
-        if (userId.length > 2) {
-          return userId.substring(0, 2) + '**';
-        }
-        return userId + '**';
-      }
-    }
-    return 'user**';
-  };
-
-  const userId = getUserId();
+  const userId = user?.email ? user.email : 'guest';
 
   // 최근 파일 통계 가져오기
   useEffect(() => {
     const fetchRecentStats = async () => {
+      if (!isAuthenticated || !token) {
+        setRecentFiles([]);
+        return;
+      }
       setIsLoadingStats(true);
       try {
         const response = await fetch(`${BACKEND_URL}/history?grouped=true`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
           },
         });
 
@@ -65,6 +60,8 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
             // 최근 6개 파일만 가져오기
             setRecentFiles(data.slice(0, 6));
           }
+        } else if (response.status === 401) {
+          setRecentFiles([]);
         }
       } catch (error) {
         console.error('Failed to fetch recent stats:', error);
@@ -74,7 +71,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
     };
 
     fetchRecentStats();
-  }, []);
+  }, [isAuthenticated, token]);
 
 
   // 날짜 포맷팅
@@ -206,8 +203,9 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {recentFiles.map((fileGroup, index) => {
               const moneySaved = fileGroup.money_saved || 0;
-              // 절약 시간 계산: 영역 수 × 페이지 수 × 1분
-              const timeSavedMinutes = fileGroup.total_records * (fileGroup.pages_count || 1) * 1;
+              const timeSavedMinutes = typeof fileGroup.time_saved_minutes === 'number'
+                ? fileGroup.time_saved_minutes
+                : fileGroup.total_records;
               return (
                 <div
                   key={index}
@@ -246,7 +244,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
                           {t('workspace.rightInspector.results.timeSaved')}
                         </div>
                         <div className="text-lg font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                          {timeSavedMinutes} {t('workspace.rightInspector.results.minutes')}
+                          {Number.isInteger(timeSavedMinutes) ? timeSavedMinutes : timeSavedMinutes.toFixed(1)} {t('workspace.rightInspector.results.minutes')}
                         </div>
                       </div>
                       {/* 절약 금액 */}

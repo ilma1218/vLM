@@ -4,33 +4,14 @@ import { useState, useRef, useEffect } from 'react';
 import { Globe, ChevronDown } from 'lucide-react';
 import { useLanguage, Language } from '@/lib/i18n';
 
-// 지원되는 언어 목록
+// 지원되는 언어 목록 (현재 지원: ko/en/ja/zh-CN/es)
 const LANGUAGES = [
-  { code: 'en-US', name: 'English (US)', flag: '🇺🇸', supported: true },
-  { code: 'en-GB', name: 'English (UK)', flag: '🇬🇧', supported: false },
-  { code: 'en-AU', name: 'English (Australia)', flag: '🇦🇺', supported: false },
-  { code: 'en-CA', name: 'English (Canada)', flag: '🇨🇦', supported: false },
-  { code: 'en-NZ', name: 'English (New Zealand)', flag: '🇳🇿', supported: false },
-  { code: 'en-IN', name: 'English (India)', flag: '🇮🇳', supported: false },
-  { code: 'en-SG', name: 'English (Singapore)', flag: '🇸🇬', supported: false },
-  { code: 'en-MY', name: 'English (Malaysia)', flag: '🇲🇾', supported: false },
-  { code: 'en-PH', name: 'English (Philippines)', flag: '🇵🇭', supported: false },
-  { code: 'en-HK', name: 'English (Hong Kong, SAR)', flag: '🇭🇰', supported: false },
-  { code: 'en-INT', name: 'English (International)', flag: '🌐', supported: false },
-  { code: 'ko', name: '한국어', flag: '🇰🇷', supported: true },
-  { code: 'zh-CN', name: '简体中文', flag: '🇨🇳', supported: true },
-  { code: 'zh-TW', name: '繁體中文', flag: '🇹🇼', supported: false },
-  { code: 'ja', name: '日本語', flag: '🇯🇵', supported: true },
-  { code: 'th', name: 'ไทย', flag: '🇹🇭', supported: false },
-  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳', supported: false },
-  { code: 'ms', name: 'Bahasa Malaysia', flag: '🇲🇾', supported: false },
-  { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩', supported: false },
-  { code: 'de', name: 'Deutsch', flag: '🇩🇪', supported: false },
-  { code: 'fr', name: 'Français', flag: '🇫🇷', supported: false },
-  { code: 'es', name: 'Español (España)', flag: '🇪🇸', supported: true },
-  { code: 'it', name: 'Italiano', flag: '🇮🇹', supported: false },
-  { code: 'ru', name: 'Русский', flag: '🇷🇺', supported: false },
-];
+  { code: 'ko', name: '한국어', flag: '🇰🇷' },
+  { code: 'en-US', name: 'English', flag: '🇺🇸' },
+  { code: 'ja', name: '日本語', flag: '🇯🇵' },
+  { code: 'zh-CN', name: '简体中文', flag: '🇨🇳' },
+  { code: 'es', name: 'Español', flag: '🇪🇸' },
+] as const;
 
 // 언어 코드를 실제 지원되는 언어로 매핑
 const mapToSupportedLanguage = (code: string): Language => {
@@ -112,8 +93,7 @@ export default function LanguageToggle() {
             </div>
             <div className="grid grid-cols-1 gap-1">
               {LANGUAGES.map((lang) => {
-                const isSupported = lang.supported;
-                const isSelected = 
+                const isSelected =
                   (language === 'ko' && lang.code === 'ko') ||
                   (language === 'en' && lang.code.startsWith('en') && lang.code === 'en-US') ||
                   (language === 'ja' && lang.code === 'ja') ||
@@ -124,23 +104,19 @@ export default function LanguageToggle() {
                   <button
                     key={lang.code}
                     onClick={() => handleLanguageSelect(lang.code)}
-                    disabled={!isSupported}
                     className={`
                       flex items-center px-3 py-2 text-sm rounded-md transition-colors text-left
                       ${isSelected 
                         ? 'bg-blue-50 text-blue-700 font-medium border border-blue-200' 
                         : 'text-gray-700 hover:bg-gray-50'
                       }
-                      ${!isSupported ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                      cursor-pointer
                     `}
                   >
                     <span className="mr-3 text-lg">{lang.flag}</span>
                     <span className="flex-1">{lang.name}</span>
                     {isSelected && (
                       <span className="text-blue-600 font-bold">✓</span>
-                    )}
-                    {!isSupported && (
-                      <span className="text-xs text-gray-400 ml-2">(준비중)</span>
                     )}
                   </button>
                 );

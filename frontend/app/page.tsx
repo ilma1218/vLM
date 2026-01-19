@@ -77,7 +77,7 @@ interface CropAreaData {
 
 export default function Home() {
   const { t } = useLanguage();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, token } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [files, setFiles] = useState<File[]>([]); // 다중 파일 업로드용
@@ -177,7 +177,7 @@ export default function Home() {
   // 키 입력 처리 (Enter 키) - 한글 입력 중에는 처리하지 않음
   const handleKeyInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     // 한글 입력 중(isComposing)이면 Enter 키를 무시
-    if (e.isComposing || isComposing) {
+    if (e.nativeEvent.isComposing || isComposing) {
       return;
     }
     
@@ -446,7 +446,7 @@ export default function Home() {
           return {
             ...area,
             crop: {
-        unit: 'px',
+        unit: 'px' as const,
         x: newCrop.x,
         y: newCrop.y,
         width: newCrop.width,
@@ -481,7 +481,7 @@ export default function Home() {
         };
         
         setCurrentCrop({
-          unit: 'px',
+          unit: 'px' as const,
           x: restoredCrop.x,
           y: restoredCrop.y,
           width: restoredCrop.width,
@@ -512,7 +512,7 @@ export default function Home() {
               ...area,
               id: `crop-${nextCropId}-page-${currentPage}-${area.id.split('-').slice(-1)[0]}`,
               crop: {
-                unit: 'px',
+                unit: 'px' as const,
                 x: newCrop.x,
                 y: newCrop.y,
                 width: newCrop.width,
@@ -552,7 +552,7 @@ export default function Home() {
           };
           
           setCurrentCrop({
-            unit: 'px',
+          unit: 'px' as const,
             x: defaultCrop.x,
             y: defaultCrop.y,
             width: defaultCrop.width,
@@ -735,7 +735,7 @@ export default function Home() {
               return {
                 ...a,
                 crop: {
-                  unit: 'px',
+                  unit: 'px' as const,
                   x: clampedX,
                   y: clampedY,
                   width: a.crop.width,
@@ -786,7 +786,7 @@ export default function Home() {
       // 저장된 영역을 % crop으로 로드해 ReactCrop이 단일 소스로 동작하게 만든다.
       if (area.cropPercent) {
         setCurrentCrop({
-          unit: '%',
+          unit: '%' as const,
           x: area.cropPercent.x,
           y: area.cropPercent.y,
           width: area.cropPercent.width,
@@ -795,7 +795,7 @@ export default function Home() {
       } else {
         // 이전 호환: cropPercent가 없으면 px 기반으로 로드
         setCurrentCrop({
-          unit: 'px',
+          unit: 'px' as const,
           x: area.crop.x,
           y: area.crop.y,
           width: area.crop.width,
@@ -827,7 +827,7 @@ export default function Home() {
             ? {
                 ...area,
                 crop: {
-                  unit: 'px',
+                  unit: 'px' as const,
                   x: finalCrop.x,
                   y: finalCrop.y,
                   width: finalCrop.width,
@@ -844,7 +844,7 @@ export default function Home() {
         const newArea: CropAreaData = {
           id: `crop-${nextCropId}`,
           crop: {
-            unit: 'px',
+            unit: 'px' as const,
             x: finalCrop.x,
             y: finalCrop.y,
             width: finalCrop.width,
@@ -975,12 +975,12 @@ export default function Home() {
       let deletedFromPage: number | undefined = undefined;
       
       // 모든 페이지에서 해당 ID의 영역 찾아서 삭제
-      for (const [pageKey, areas] of prev.entries()) {
+      Array.from(prev.entries()).forEach(([pageKey, areas]) => {
         const beforeLength = areas.length;
         console.log(`Checking page ${pageKey === undefined ? 'undefined' : pageKey}: ${beforeLength} areas`);
         
         // ID가 정확히 일치하는 영역만 제외
-        const filtered = areas.filter(area => {
+        const filtered = areas.filter((area: CropAreaData) => {
           const matches = area.id === id;
           if (matches) {
             console.log(`✓ MATCH FOUND! Removing area: "${area.id}" from page ${pageKey}`);
@@ -1002,20 +1002,20 @@ export default function Home() {
         }
         // 필터링된 배열을 항상 새 Map에 추가 (빈 배열이어도)
         newMap.set(pageKey, filtered);
-      }
+      });
       
       if (!deleted) {
         console.error(`✗ ERROR: Area with id "${id}" not found in any page!`);
         console.error('Searching for similar IDs...');
         // 디버깅: 현재 모든 영역 ID 출력 및 유사한 ID 찾기
-        for (const [pageKey, areas] of prev.entries()) {
-          console.log(`Page ${pageKey === undefined ? 'undefined' : pageKey} areas:`, areas.map(a => a.id));
+        Array.from(prev.entries()).forEach(([pageKey, areas]) => {
+          console.log(`Page ${pageKey === undefined ? 'undefined' : pageKey} areas:`, areas.map((a: CropAreaData) => a.id));
           // 유사한 ID 찾기
-          const similarIds = areas.filter(a => a.id.includes(id) || id.includes(a.id));
+          const similarIds = areas.filter((a: CropAreaData) => a.id.includes(id) || id.includes(a.id));
           if (similarIds.length > 0) {
-            console.warn(`  Found similar IDs:`, similarIds.map(a => a.id));
+            console.warn(`  Found similar IDs:`, similarIds.map((a: CropAreaData) => a.id));
           }
-        }
+        });
         // 삭제할 영역이 없어도 새 Map 반환 (React가 변경을 감지하도록)
         console.log('Returning new map even though no area was deleted');
         return newMap;
@@ -1083,7 +1083,7 @@ export default function Home() {
               const imgHeight = imgRef.current.height;
               
               // 첫 페이지의 모든 크롭 영역을 새 페이지에 복사 (페이지 번호만 변경)
-              const copiedAreas = firstPageAreas.map(area => {
+              const copiedAreas: CropAreaData[] = firstPageAreas.map((area) => {
                 if (area.cropPercent) {
                   const newCrop: PixelCrop = {
                     x: (area.cropPercent.x / 100) * imgWidth,
@@ -1096,7 +1096,7 @@ export default function Home() {
                     ...area,
                     id: `crop-${nextCropId}-page-${newPage}-${area.id.split('-').slice(-1)[0]}`,
                     crop: {
-                      unit: 'px',
+                      unit: 'px' as const,
                       x: newCrop.x,
                       y: newCrop.y,
                       width: newCrop.width,
@@ -1104,13 +1104,13 @@ export default function Home() {
                     },
                     completedCrop: newCrop,
                     pageNumber: newPage,
-                  };
+                  } as CropAreaData;
                 }
                 return {
                   ...area,
                   id: `crop-${nextCropId}-page-${newPage}-${area.id.split('-').slice(-1)[0]}`,
                   pageNumber: newPage,
-                };
+                } as CropAreaData;
               });
               
               // 새 페이지에 복사된 영역 저장
@@ -1121,8 +1121,8 @@ export default function Home() {
               });
               
               // 첫 번째 영역을 현재 크롭으로 설정
-              if (copiedAreas[0] && copiedAreas[0].cropPercent) {
-                const firstArea = copiedAreas[0];
+              const firstArea = copiedAreas[0];
+              if (firstArea?.cropPercent) {
                 const restoredCrop: PixelCrop = {
                   x: (firstArea.cropPercent.x / 100) * imgWidth,
                   y: (firstArea.cropPercent.y / 100) * imgHeight,
@@ -1132,7 +1132,7 @@ export default function Home() {
                 };
                 
                 setCurrentCrop({
-                  unit: 'px',
+                  unit: 'px' as const,
                   x: restoredCrop.x,
                   y: restoredCrop.y,
                   width: restoredCrop.width,
@@ -1156,7 +1156,7 @@ export default function Home() {
               };
               
               setCurrentCrop({
-                unit: 'px',
+                unit: 'px' as const,
                 x: restoredCrop.x,
                 y: restoredCrop.y,
                 width: restoredCrop.width,
@@ -1610,9 +1610,9 @@ export default function Home() {
     const allCropAreas: CropAreaData[] = [];
     if (!autoCollectFullPage || ocrMode === 'standard') {
       // 일반 모드이거나 자동수집이 체크되지 않은 경우: 기존 로직
-      for (const areas of cropAreasByPage.values()) {
+      Array.from(cropAreasByPage.values()).forEach((areas) => {
         allCropAreas.push(...areas);
-      }
+      });
 
       if (allCropAreas.length === 0) {
         setError('최소 하나의 크롭 영역을 추가해주세요.');
@@ -1818,7 +1818,7 @@ export default function Home() {
                 extracted_text: data.extracted_text,
                 cropped_image: data.cropped_image,
                 filename: data.filename || pdfFile?.name || 'unknown.pdf',
-                page_number: area.pageNumber,
+                page_number: typeof area.pageNumber === 'number' ? area.pageNumber : null,
               }]);
               
               // 즉시 결과 업데이트 - 페이지별로 바로바로 표시
@@ -3012,9 +3012,37 @@ export default function Home() {
                     const actualAreasCount = processedAreasCount > 0 ? processedAreasCount : 0;
                     const actualPagesCount = processedPagesSet.size > 0 ? processedPagesSet.size : (isPdf ? totalPages : 1);
                     const MINIMUM_WAGE_PER_HOUR = 10320; // 시간당 급여 기준 (원/시간)
-                    const timeSavedMinutes = actualAreasCount * actualPagesCount * 1; // 분 단위 (영역 수 × 페이지 수 × 1분)
-                    // 계산: 영역 수 × 페이지 수 × 1분 × 시급 10,320원
-                    const moneySaved = actualAreasCount * actualPagesCount * 1 * (MINIMUM_WAGE_PER_HOUR / 60); // 원
+                    const isAdvanced = ocrMode === 'advanced';
+
+                    // 일반 모드: 영역 1개 × 페이지 1개당 1분
+                    // 고급 모드: key:value 1개 × 페이지 1개당 10초
+                    const keyValueCount = extractKeys.length;
+
+                    // 일반 모드 기준(변경): 사람이 문서를 보고 타이핑하는 시간은 영역 개수보다
+                    // "실제 입력해야 할 글자 수"에 비례한다고 보고 계산합니다.
+                    // - 평균 타이핑 속도(문서 전사): 180 CPM (분당 180글자)
+                    const TYPING_CPM = 180;
+                    const totalChars = (() => {
+                      // 가능하면 개별 결과(영역/페이지)들의 총 글자 수를 사용
+                      if (Array.isArray(ocrResultsData) && ocrResultsData.length > 0) {
+                        return ocrResultsData.reduce((sum, r) => sum + String(r?.extracted_text || '').length, 0);
+                      }
+                      // 폴백: 화면에 표시되는 최종 결과 텍스트 길이
+                      return String(ocrResult || '').length;
+                    })();
+                    const totalCharsLabel = totalChars.toLocaleString('ko-KR');
+
+                    const timeSavedMinutes = (() => {
+                      if (!isAdvanced) return totalChars / TYPING_CPM;
+                      const seconds = keyValueCount * actualPagesCount * 10;
+                      return seconds / 60;
+                    })();
+
+                    const moneySaved = (timeSavedMinutes / 60) * MINIMUM_WAGE_PER_HOUR; // 원
+
+                    const timeSavedMinutesLabel = Number.isInteger(timeSavedMinutes)
+                      ? String(timeSavedMinutes)
+                      : timeSavedMinutes.toFixed(1);
                     return (
                       <div className="bg-blue-50 border border-blue-200 rounded-md p-4 space-y-3">
                         {/* 절약된 시간 */}
@@ -3023,7 +3051,7 @@ export default function Home() {
                             {t('workspace.rightInspector.results.timeSaved')}
                           </div>
                           <div className="text-xl font-bold text-blue-600">
-                            {timeSavedMinutes} {t('workspace.rightInspector.results.minutes')}
+                            {timeSavedMinutesLabel} {t('workspace.rightInspector.results.minutes')}
                           </div>
                         </div>
                         {/* 절약된 금액 */}
@@ -3035,7 +3063,15 @@ export default function Home() {
                             {Math.round(moneySaved).toLocaleString('ko-KR')} {t('workspace.rightInspector.results.won')}
                           </div>
                           <div className="text-xs text-blue-600 mt-2">
-                            (영역 {actualAreasCount}개 × 페이지 {actualPagesCount}개 × 1분, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
+                            {!isAdvanced ? (
+                              <>
+                                (총 글자수 {totalCharsLabel}자 ÷ {TYPING_CPM}CPM  / 시급기준 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)
+                                <br />
+                                (CPM - Characters Per Minute)
+                              </>
+                            ) : (
+                              <> (키:값 {keyValueCount}개 × 페이지 {actualPagesCount}개 × 10초, 시급 {MINIMUM_WAGE_PER_HOUR.toLocaleString('ko-KR')}원)</>
+                            )}
                           </div>
       </div>
     </div>
@@ -3080,7 +3116,7 @@ export default function Home() {
                 })()}
                 className="w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {t('workspace.rightInspector.actions.runOCR')}
+                {ocrResult ? t('workspace.rightInspector.actions.rerunOCR') : t('workspace.rightInspector.actions.runOCR')}
                 {(() => {
                   if (ocrMode === 'advanced' && autoCollectFullPage) {
                     return ` (${isPdf ? totalPages : 1}페이지 전체)`;
@@ -3101,11 +3137,16 @@ export default function Home() {
                       setError('저장할 결과가 없습니다.');
                       return;
                     }
+
+                    if (!isAuthenticated || !user?.email) {
+                      setError('저장하려면 로그인이 필요합니다.');
+                      return;
+                    }
                     
                     try {
                       setError(null);
                       const saveSessionId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-                      const userEmail = user?.email || 'user@example.com';
+                      const userEmail = user.email;
                       // 각 OCR 결과를 순차적으로 저장
                       for (const resultData of ocrResultsData) {
                         const formData = new FormData();
@@ -3120,6 +3161,7 @@ export default function Home() {
                         
                         const response = await fetch(`${BACKEND_URL}/history/save`, {
                           method: 'POST',
+                          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
                           body: formData,
                         });
                         

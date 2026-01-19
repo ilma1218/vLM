@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Loader2, RefreshCw, ChevronRight, ChevronDown, ChevronLeft, FileText, Edit2, Trash2, Save, X, CheckSquare, Square, Download, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { OcrChatModal } from '@/components/OcrChatModal';
+import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/lib/i18n';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -24,10 +26,13 @@ interface FileGroup {
 }
 
 export default function MonitorPage() {
+  const { t } = useLanguage();
+  const { isAuthenticated, token, isLoading: authLoading } = useAuth();
   const [files, setFiles] = useState<FileGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const didAutoExpandRef = useRef(false);
   const [selectedRecord, setSelectedRecord] = useState<OCRRecord | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState<string>('');
@@ -45,55 +50,72 @@ export default function MonitorPage() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatTargetFile, setChatTargetFile] = useState<FileGroup | null>(null);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
+    // 토큰 초기 로딩 중에는 "로그인 필요"로 오판하지 않도록 대기
+    if (authLoading) {
+      setIsLoading(true);
+      return;
+    }
+    if (!isAuthenticated || !token) {
+      setFiles([]);
+      setError('히스토리를 보려면 로그인이 필요합니다.');
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
       const url = `${BACKEND_URL}/history?grouped=true&include_records=true`;
       console.log('Fetching history from:', url);
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Response error:', response.status, errorText);
+        if (response.status === 401) {
+          throw new Error('로그인이 필요합니다.');
+        }
         throw new Error(`히스토리를 불러오는데 실패했습니다. (${response.status}: ${response.statusText})`);
       }
-      
+
       // JSON 파싱 전에 응답 크기 확인
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         throw new Error('서버가 유효하지 않은 응답 형식을 반환했습니다.');
       }
-      
+
       const data = await response.json();
       console.log('History data received:', data?.length || 0, 'files');
-      
+
       // 데이터 유효성 검사
       if (!Array.isArray(data)) {
         console.error('Invalid data format:', data);
         throw new Error('서버가 유효하지 않은 데이터 형식을 반환했습니다.');
       }
-      
+
       setFiles(data);
-      
-      // 첫 번째 파일을 자동으로 확장
-      if (data.length > 0 && expandedFiles.size === 0) {
-        const firstGroupKey = data[0].first_timestamp 
-          ? `${data[0].filename}_${data[0].first_timestamp}` 
+
+      // 첫 번째 파일 자동 확장은 "최초 1회"만 수행 (사용자가 접어둔 상태를 되돌리지 않음)
+      if (!didAutoExpandRef.current && data.length > 0) {
+        const firstGroupKey = data[0].first_timestamp
+          ? `${data[0].filename}_${data[0].first_timestamp}`
           : data[0].filename;
         setExpandedFiles(new Set([firstGroupKey]));
+        didAutoExpandRef.current = true;
       }
     } catch (err) {
       console.error('Fetch error:', err);
@@ -111,7 +133,7 @@ export default function MonitorPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [authLoading, isAuthenticated, token]);
 
   const getGroupKey = (fileGroup: FileGroup): string => {
     // 고유 그룹 키 생성 (파일명 + 첫 타임스탬프)
@@ -148,11 +170,13 @@ export default function MonitorPage() {
     
     setIsSaving(true);
     try {
+      if (!token) throw new Error('로그인이 필요합니다.');
       const formData = new FormData();
       formData.append('extracted_text', editedText);
 
       const response = await fetch(`${BACKEND_URL}/history/${selectedRecord.id}`, {
         method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -193,6 +217,7 @@ export default function MonitorPage() {
     try {
       const response = await fetch(`${BACKEND_URL}/history/${selectedRecord.id}`, {
         method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       if (!response.ok) {
@@ -234,6 +259,7 @@ export default function MonitorPage() {
       
       const response = await fetch(url, {
         method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       if (!response.ok) {
@@ -248,7 +274,7 @@ export default function MonitorPage() {
       });
 
       // 삭제된 파일의 레코드가 선택되어 있으면 선택 해제
-      if (selectedRecord && fileToDelete.records.some(r => r.id === selectedRecord.id)) {
+      if (selectedRecord && (fileToDelete.records || []).some(r => r.id === selectedRecord.id)) {
         setSelectedRecord(null);
         setIsEditing(false);
       }
@@ -399,10 +425,12 @@ export default function MonitorPage() {
     setIsDeletingMultiple(true);
     setError(null);
     try {
+      if (!token) throw new Error('로그인이 필요합니다.');
       const response = await fetch(`${BACKEND_URL}/history/delete-multiple`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(Array.from(selectedRecordIds)),
       });
@@ -450,10 +478,9 @@ export default function MonitorPage() {
   };
 
   useEffect(() => {
-    // 초기 로드 시에만 데이터 가져오기
+    // 로그인 토큰 준비가 끝난 뒤(또는 변경 시) 히스토리 재조회
     fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchHistory]);
 
   // 모든 레코드를 시간순으로 정렬된 리스트로 변환
   const getAllRecordsSorted = useCallback((): OCRRecord[] => {
@@ -470,7 +497,10 @@ export default function MonitorPage() {
   // 레코드 상세 정보 가져오기 (이미지 포함)
   const fetchRecordDetails = useCallback(async (recordId: number) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/history/${recordId}`);
+      if (!token) return null;
+      const response = await fetch(`${BACKEND_URL}/history/${recordId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (response.ok) {
         const fullRecord = await response.json();
         return fullRecord;
@@ -479,7 +509,7 @@ export default function MonitorPage() {
       console.error('Failed to fetch record details:', err);
     }
     return null;
-  }, []);
+  }, [token]);
 
   // 이전 레코드로 이동
   const navigateToPrevious = useCallback(async () => {
@@ -574,7 +604,7 @@ export default function MonitorPage() {
   const downloadAllText = (fileGroup: FileGroup) => {
     const records = fileGroup.records || [];
     if (records.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
@@ -602,13 +632,13 @@ export default function MonitorPage() {
   const downloadKeyValue = (fileGroup: FileGroup) => {
     const records = fileGroup.records || [];
     if (records.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
     // 모든 레코드를 파싱하여 모든 key 수집
     const allKeys = new Set<string>();
-    const parsedRecords: Array<Record<string, string> & { _id: number; _page?: number; _timestamp: string }> = [];
+    const parsedRecords: Array<Record<string, any> & { _id: number; _page?: number; _timestamp: string }> = [];
 
     records.forEach((record) => {
       const parsed = parseKeyValue(record.extracted_text);
@@ -655,7 +685,7 @@ export default function MonitorPage() {
   // 전체 파일 그룹 다운로드 (전체 텍스트)
   const downloadAllFilesText = () => {
     if (files.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
@@ -675,7 +705,7 @@ export default function MonitorPage() {
     });
 
     if (allData.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
@@ -690,13 +720,13 @@ export default function MonitorPage() {
   // 전체 파일 그룹 다운로드 (key:value)
   const downloadAllFilesKeyValue = () => {
     if (files.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
     // 모든 레코드를 파싱하여 모든 key 수집
     const allKeys = new Set<string>();
-    const parsedRecords: Array<Record<string, string> & { _id: number; _filename: string; _page?: number; _timestamp: string }> = [];
+    const parsedRecords: Array<Record<string, any> & { _id: number; _filename: string; _page?: number; _timestamp: string }> = [];
 
     files.forEach((fileGroup) => {
       const records = fileGroup.records || [];
@@ -714,7 +744,7 @@ export default function MonitorPage() {
     });
 
     if (parsedRecords.length === 0) {
-      alert('다운로드할 데이터가 없습니다.');
+      alert(t('historyPage.alerts.noDownloadData'));
       return;
     }
 
@@ -766,7 +796,7 @@ export default function MonitorPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">OCR History</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{t('historyPage.title')}</h1>
           <div className="flex items-center gap-2">
             {files.length > 0 && (
               <div className="relative download-menu-container">
@@ -775,13 +805,13 @@ export default function MonitorPage() {
                   className="inline-flex items-center px-4 py-2 border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 bg-white hover:bg-green-50"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  엑셀 다운로드
+                  {t('historyPage.excelDownload')}
                 </button>
                 {showAllDownloadMenu && (
                   <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-10">
                     <div className="py-1">
                       <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase border-b border-gray-100">
-                        전체 다운로드
+                        {t('historyPage.allDownload')}
                       </div>
                       <button
                         onClick={() => {
@@ -790,7 +820,7 @@ export default function MonitorPage() {
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       >
-                        전체 텍스트 다운로드
+                        {t('historyPage.allTextDownload')}
                       </button>
                       <button
                         onClick={() => {
@@ -799,7 +829,7 @@ export default function MonitorPage() {
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                       >
-                        전체 Key:Value 다운로드
+                        {t('historyPage.allKeyValueDownload')}
                       </button>
                     </div>
                   </div>
@@ -809,7 +839,7 @@ export default function MonitorPage() {
             {isMultiSelectMode && selectedRecordIds.size > 0 && (
               <div className="flex items-center gap-2 mr-2">
                 <span className="text-sm text-gray-700">
-                  {selectedRecordIds.size}개 선택됨
+                  {selectedRecordIds.size}{t('historyPage.selectedCount')}
                 </span>
                 <button
                   onClick={handleDeleteMultiple}
@@ -819,12 +849,12 @@ export default function MonitorPage() {
                   {isDeletingMultiple ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      삭제 중...
+                      {t('historyPage.deleting')}
                     </>
                   ) : (
                     <>
                       <Trash2 className="w-4 h-4 mr-2" />
-                      선택 삭제
+                      {t('historyPage.deleteSelected')}
                     </>
                   )}
                 </button>
@@ -833,7 +863,7 @@ export default function MonitorPage() {
                   disabled={isDeletingMultiple}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
-                  선택 해제
+                  {t('historyPage.clearSelection')}
                 </button>
               </div>
             )}
@@ -848,12 +878,12 @@ export default function MonitorPage() {
               {isMultiSelectMode ? (
                 <>
                   <CheckSquare className="w-4 h-4 mr-2" />
-                  다중 선택 해제
+                  {t('historyPage.multiSelectOff')}
                 </>
               ) : (
                 <>
                   <Square className="w-4 h-4 mr-2" />
-                  다중 선택
+                  {t('historyPage.multiSelect')}
                 </>
               )}
             </button>
@@ -863,7 +893,7 @@ export default function MonitorPage() {
               className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              새로고침
+              {t('historyPage.refresh')}
             </button>
           </div>
         </div>
@@ -878,7 +908,7 @@ export default function MonitorPage() {
           </div>
         ) : files.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500">아직 OCR 기록이 없습니다.</p>
+            <p className="text-gray-500">{t('historyPage.noRecords')}</p>
           </div>
         ) : selectedRecord ? (
           // 상세 보기 모드
@@ -894,7 +924,7 @@ export default function MonitorPage() {
                   className="text-blue-600 hover:text-blue-800 flex items-center gap-2"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180" />
-                  파일 목록으로 돌아가기
+                  {t('historyPage.backToList')}
                 </button>
                 {!isEditing && (
                   <div className="flex items-center gap-2 border-l border-gray-300 pl-4">
@@ -902,7 +932,7 @@ export default function MonitorPage() {
                       onClick={navigateToPrevious}
                       disabled={recordNavigation.currentIndex === 0}
                       className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="이전 레코드 (←)"
+                      title={t('historyPage.prevRecord')}
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
@@ -913,7 +943,7 @@ export default function MonitorPage() {
                       onClick={navigateToNext}
                       disabled={recordNavigation.currentIndex === recordNavigation.total - 1}
                       className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="다음 레코드 (→)"
+                      title={t('historyPage.nextRecord')}
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -927,7 +957,7 @@ export default function MonitorPage() {
                     className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                   >
                     <Edit2 className="w-4 h-4 mr-2" />
-                    수정
+                    {t('historyPage.edit')}
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(true)}
@@ -1266,6 +1296,7 @@ export default function MonitorPage() {
                     )}
                   </div>
                   <button
+                    type="button"
                     onClick={() => toggleFile(fileGroup)}
                     className="flex-1 flex items-center justify-between p-4"
                   >

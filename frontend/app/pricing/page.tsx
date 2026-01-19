@@ -6,11 +6,16 @@ import { useAuth } from '@/hooks/useAuth';
 import { Check, Crown, Users, Building2, Info, FileText, AlertCircle, Briefcase, Sparkles, X } from 'lucide-react';
 import LoginModal from '@/components/LoginModal';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
 export default function PricingPage() {
   const { t } = useLanguage();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, token } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showExpertCaseModal, setShowExpertCaseModal] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
 
   const plans = [
     {
@@ -40,6 +45,37 @@ export default function PricingPage() {
     },
   ];
 
+  const purchasePlan = async (planKey: string) => {
+    if (!isAuthenticated || !token) {
+      setShowLoginModal(true);
+      return;
+    }
+    setIsPurchasing(true);
+    setPurchaseError(null);
+    setPurchaseSuccess(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/billing/purchase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ plan_key: planKey }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.detail || '구매 처리에 실패했습니다.');
+
+      // Navbar 크레딧 즉시 갱신
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('billing:refresh'));
+      setPurchaseSuccess(`구매가 완료되었습니다. (지급 크레딧: ${data?.credits_granted ?? '-'})`);
+      setTimeout(() => setPurchaseSuccess(null), 2500);
+    } catch (e) {
+      setPurchaseError(e instanceof Error ? e.message : '구매 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
   return (
     <>
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-12 px-4">
@@ -56,6 +92,20 @@ export default function PricingPage() {
 
         {/* Pricing Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
+          {(purchaseError || purchaseSuccess) && (
+            <div className="lg:col-span-5">
+              {purchaseError && (
+                <div className="mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                  {purchaseError}
+                </div>
+              )}
+              {purchaseSuccess && (
+                <div className="mb-3 bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
+                  {purchaseSuccess}
+                </div>
+              )}
+            </div>
+          )}
           {plans.map((plan) => {
             return (
               <div
@@ -121,17 +171,16 @@ export default function PricingPage() {
                   {/* Button */}
                   <button
                     onClick={() => {
-                      // 자동 로그인으로 인증 체크 제거
-                      // TODO: 실제 결제/가입 로직 구현
-                      console.log(`Selected plan: ${plan.key}`);
+                      purchasePlan(plan.key);
                     }}
+                    disabled={isPurchasing}
                     className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors mb-6 ${
                       plan.popular
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
                         : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                    }`}
+                    } ${isPurchasing ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
-                    {t(`pricing.plans.${plan.key}.button`)}
+                    {isPurchasing ? t('common.loading') : t(`pricing.plans.${plan.key}.button`)}
                   </button>
 
                   {/* Expert Case Button */}
@@ -294,6 +343,8 @@ export default function PricingPage() {
         </div>
       </div>
     </div>
+
+    <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
     <LoginModal
       isOpen={showLoginModal}
       onClose={() => setShowLoginModal(false)}

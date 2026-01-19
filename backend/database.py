@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, event, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, event, UniqueConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -37,6 +37,10 @@ class OCRRecord(Base):
     __tablename__ = "ocr_records"
 
     id = Column(Integer, primary_key=True, index=True)
+    # 로그인 사용자 기준으로 히스토리를 분리하기 위한 소유자 이메일
+    email = Column(String, nullable=True, index=True)
+    # 저장 버튼 1회 클릭 단위(업로드 세션)로 이용내역을 집계하기 위한 키
+    save_session_id = Column(String, nullable=True, index=True)
     extracted_text = Column(String, nullable=False)
     cropped_image = Column(String, nullable=True)  # base64 encoded image
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -71,6 +75,21 @@ class UserAccount(Base):
     email = Column(String, nullable=False, unique=True, index=True)
     plan_key = Column(String, nullable=True)  # e.g. "expert"
     credits_balance = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserAuth(Base):
+    """
+    아이디/비밀번호 인증용 테이블.
+    - UserAccount(크레딧/플랜)과는 분리하여 관리
+    - 식별자는 email(=아이디)로 통일
+    """
+    __tablename__ = "user_auth"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -110,6 +129,26 @@ class CreditLedger(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_schema_migrations()
+
+
+def _column_exists(conn, table_name: str, column_name: str) -> bool:
+    rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    return any(r[1] == column_name for r in rows)  # r[1] = column name
+
+
+def _ensure_schema_migrations():
+    """
+    SQLite는 Alembic 없이도 간단한 ALTER로 스키마를 보강할 수 있어,
+    개발 환경에서만 필요한 최소 마이그레이션을 적용합니다.
+    """
+    with engine.begin() as conn:
+        # ocr_records.email 컬럼 추가 (로그인 사용자 히스토리 분리)
+        if not _column_exists(conn, "ocr_records", "email"):
+            conn.execute(text("ALTER TABLE ocr_records ADD COLUMN email VARCHAR"))
+        # ocr_records.save_session_id 컬럼 추가 (파일/세션 단위 이용내역 집계)
+        if not _column_exists(conn, "ocr_records", "save_session_id"):
+            conn.execute(text("ALTER TABLE ocr_records ADD COLUMN save_session_id VARCHAR"))
 
 
 def get_db():
