@@ -24,6 +24,56 @@
 
 ---
 
+## 2-A) “정상 작동”을 위한 필수 조건/환경 설정 (체크리스트)
+
+다른 서버에서 이 레포를 그대로 실행했을 때 아래 조건을 만족하면, **프론트(`:3000`) + 백엔드(`:8000`)는 정상 구동**됩니다.
+
+### 2-A.1 필수 버전
+- **Python**: 3.10+
+- **Node.js**: 18+ (권장: 18 LTS 또는 20 LTS)
+- **npm**: Node에 포함된 버전 사용
+
+### 2-A.2 필수 설치 조건(의존성)
+- **Backend**: `backend/requirements.txt` 설치 완료 (venv 권장)
+- **Frontend**: `frontend/package-lock.json` 기준으로 `npm ci` 수행 권장
+
+### 2-A.3 환경변수/설정 (중요)
+
+#### Frontend → Backend 연결 주소
+- 프론트는 다음 우선순위로 백엔드 주소를 결정합니다:
+  - `NEXT_PUBLIC_BACKEND_URL` (설정되어 있으면 사용)
+  - 없으면 기본값 `http://localhost:8000`
+- **서버 IP/도메인 환경**에서는 `frontend/.env.local`에 백엔드 주소를 명시하는 것을 권장합니다.
+
+#### Backend JWT 설정(로그인/히스토리/크레딧 기능에 영향)
+- `JWT_SECRET_KEY`가 서버마다 달라지면 **기존 토큰이 무효**가 됩니다(다시 로그인하면 새 토큰 발급으로 해결).
+- 재현/운영에서 안정적으로 쓰려면 아래를 환경변수로 고정하세요:
+  - `JWT_SECRET_KEY` (필수 권장)
+  - `JWT_EXPIRES_MINUTES` (선택, 기본 10080 = 7일)
+
+### 2-A.4 Ollama 설치 여부에 따른 동작 범위(중요)
+- **Ollama 없이도**:
+  - 프론트 UI 구동(업로드/크롭 UI)
+  - 백엔드 API 서버 구동(로그인/구매/히스토리/크레딧 API 자체는 동작)
+  - 단, **OCR 실행은 실패하거나 제한**됩니다.
+- **Ollama + 모델(`qwen2.5vl:7b`)까지 설치/실행 시**:
+  - OCR 기능까지 포함한 전체 플로우가 정상 동작합니다.
+
+### 2-A.5 실행 직후 정상 확인(간단)
+
+```bash
+# Backend 응답 확인
+curl -sS http://localhost:8000/ >/dev/null && echo "backend ok"
+
+# Frontend 응답 확인
+curl -sS http://localhost:3000/ >/dev/null && echo "frontend ok"
+
+# Ollama(선택) 확인
+ollama list >/dev/null && echo "ollama ok"
+```
+
+---
+
 ## 3) 권장 OS/필수 패키지
 
 ### 권장 OS
