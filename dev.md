@@ -174,6 +174,111 @@ rm -f /home/work/vLM/backend/ocr_history.db*
 
 ---
 
+## 6-A) Database 스키마 (SQLite)
+
+DB는 기본적으로 `backend/ocr_history.db` 파일로 생성되며, SQLAlchemy 모델은 `backend/database.py`를 기준으로 합니다.
+
+### 6-A.1 테이블 목록
+
+- `ocr_records`: OCR 저장 히스토리(사용자별 분리)
+- `prompts`: 프롬프트 템플릿 저장
+- `extract_keys`: 고급모드 key:value 추출에 사용하는 키 목록 저장
+- `users`: 크레딧/플랜 계정(UserAccount)
+- `user_auth`: 아이디/비밀번호 인증(UserAuth)
+- `purchases`: 구매 이력(모의 결제 포함)
+- `credit_ledger`: 크레딧 증감 원장(지급/차감/중복차감 방지용 유니크 제약 포함)
+
+### 6-A.2 테이블별 컬럼(요약)
+
+#### `ocr_records`
+- `id` (INTEGER, PK)
+- `email` (VARCHAR, NULL 가능, INDEX): 히스토리 소유자(로그인 사용자 이메일)
+- `save_session_id` (VARCHAR, NULL 가능, INDEX): “저장 버튼 1회 클릭” 단위로 묶는 키
+- `extracted_text` (VARCHAR, NOT NULL)
+- `cropped_image` (VARCHAR, NULL): base64 이미지(저장 시)
+- `timestamp` (DATETIME, default=UTC now)
+- `filename` (VARCHAR, NULL)
+- `page_number` (INTEGER, NULL): PDF 페이지 번호(이미지인 경우 NULL 가능)
+
+#### `users` (UserAccount)
+- `id` (INTEGER, PK)
+- `email` (VARCHAR, NOT NULL, UNIQUE, INDEX)
+- `plan_key` (VARCHAR, NULL): 예) `expert`
+- `credits_balance` (INTEGER, NOT NULL, default=0)
+- `created_at` (DATETIME)
+- `updated_at` (DATETIME)
+
+#### `user_auth` (UserAuth)
+- `id` (INTEGER, PK)
+- `email` (VARCHAR, NOT NULL, UNIQUE, INDEX)
+- `password_hash` (VARCHAR, NOT NULL)  *(pbkdf2_sha256 결과 저장)*
+- `created_at` (DATETIME)
+- `updated_at` (DATETIME)
+
+#### `purchases`
+- `id` (INTEGER, PK)
+- `email` (VARCHAR, NOT NULL, INDEX)
+- `plan_key` (VARCHAR, NOT NULL)
+- `amount_krw` (INTEGER, NULL 가능)
+- `credits_granted` (INTEGER, NOT NULL, default=0)
+- `purchased_at` (DATETIME)
+
+#### `credit_ledger`
+- `id` (INTEGER, PK)
+- `email` (VARCHAR, NOT NULL, INDEX)
+- `delta` (INTEGER, NOT NULL)  *(+지급 / -차감)*
+- `reason` (VARCHAR, NOT NULL)  *(예: `purchase`, `ocr_save_page_charge`)*
+- `filename` (VARCHAR, NULL)
+- `page_key` (INTEGER, NOT NULL, default=-1) *(보통 page_number, PDF 아닌 경우 -1)*
+- `save_session_id` (VARCHAR, NULL)
+- `meta` (VARCHAR, NULL): JSON 문자열
+- `created_at` (DATETIME)
+
+**중복 차감 방지 유니크 제약**
+- `credit_ledger`에는 다음 유니크 제약이 있습니다:
+  - `(email, reason, save_session_id, page_key)` UNIQUE  
+  - 의미: 동일한 “저장 세션(save_session_id)” 내에서 같은 페이지(page_key)에 대해 같은 reason으로 **1회만** 원장 기록(=중복 차감 방지)
+
+#### `prompts`
+- `id` (INTEGER, PK)
+- `name` (VARCHAR, NOT NULL)
+- `prompt` (VARCHAR, NOT NULL)
+- `created_at` (DATETIME)
+- `updated_at` (DATETIME)
+
+#### `extract_keys`
+- `id` (INTEGER, PK)
+- `name` (VARCHAR, NOT NULL)
+- `keys` (VARCHAR, NOT NULL): JSON 문자열 배열(예: `["key1","key2"]`)
+- `created_at` (DATETIME)
+- `updated_at` (DATETIME)
+
+### 6-A.3 간단 마이그레이션(ALTER) 동작
+
+Alembic을 쓰지 않고, 서버 시작 시 `init_db()`에서 최소 스키마 보강을 수행합니다:
+- `ocr_records.email` 컬럼이 없으면 `ALTER TABLE ... ADD COLUMN`
+- `ocr_records.save_session_id` 컬럼이 없으면 `ALTER TABLE ... ADD COLUMN`
+
+> 이미 만들어진 DB 파일을 새 코드로 올렸을 때도 “필수 컬럼”이 부족하면 자동으로 보강되도록 만든 개발 편의 기능입니다.
+
+### 6-A.4 크레딧/히스토리 데이터 흐름(요약)
+
+- **회원가입(`/auth/signup`)**:
+  - `user_auth`에 `email/password_hash` 생성
+  - `users`에 계정이 없으면 생성(credits 0)
+- **로그인(`/auth/login`)**:
+  - `user_auth` 검증 후 JWT 발급
+- **요금제 구매(`/billing/purchase`)**:
+  - `purchases`에 구매 이력 추가
+  - `credit_ledger`에 `reason="purchase"`로 +delta 기록
+  - `users.credits_balance` 증가
+- **OCR 저장(`/history/save`)**:
+  - `ocr_records`에 히스토리 저장(소유자 email 포함)
+  - `credit_ledger`에 `reason="ocr_save_page_charge"`로 페이지당 -10 기록(유니크 제약으로 중복 차감 방지)
+  - `users.credits_balance` 감소
+
+---
+
 ## 7) Frontend 설치/실행 (Next.js 14)
 
 ### 7.1 Node.js 버전
