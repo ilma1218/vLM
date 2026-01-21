@@ -530,6 +530,94 @@ React state는 비동기 업데이트라서,
 - 편집 모드에서 오버레이가 숨겨지는지(`editingAreaId`)
 - 업데이트 버튼이 1회 클릭으로 반영되는지(상태 비동기 의존 제거)
 
+### 13.7 코드 위치 “바로가기”(검색 키워드 포함)
+
+아래는 crop 관련 로직을 수정할 때 가장 먼저 보는 지점들입니다.  
+에디터에서 **파일을 연 뒤 키워드로 검색**하면 빠르게 접근할 수 있습니다.
+
+#### A) Crop 상태/데이터 구조 (상태 변수)
+
+- **파일**: `frontend/app/page.tsx`
+  - **검색 키워드**
+    - `const [currentCrop, setCurrentCrop]`
+    - `const [currentCompletedCrop, setCurrentCompletedCrop]`
+    - `const [cropAreasByPage, setCropAreasByPage]`
+    - `const [editingAreaId, setEditingAreaId]`
+    - `const [pendingCropData, setPendingCropData]`
+    - `const [showApplyToAllModal, setShowApplyToAllModal]`
+  - **의미**
+    - `currentCrop`: ReactCrop에 바인딩되는 “현재 선택 박스” 상태
+    - `currentCompletedCrop`: 드래그 완료된 crop 결과(PixelCrop) + `_cropRatio`(0.0~1.0) 확장 값
+    - `cropAreasByPage`: 페이지별 저장 영역 Map (PDF면 key=페이지번호, 이미지면 key=`undefined`)
+    - `editingAreaId`: 편집 중인 저장 영역 id (편집 중에는 오버레이 숨김/ReactCrop만 조작)
+    - `pendingCropData`: “PDF 전체 페이지 적용” 모달에서 쓰는 임시 데이터(cropPercent/finalCrop)
+
+#### B) 좌표계 정규화(핵심): onComplete 처리
+
+- **파일**: `frontend/app/page.tsx`
+  - **함수**: `onCropComplete`
+  - **검색 키워드**: `const onCropComplete = useCallback`
+  - **역할**
+    - `percentageCrop`(%)가 있으면 우선 사용하여 `cropRatio(0.0~1.0)`로 정규화
+    - 표시 크기(`getBoundingClientRect`) 기준으로 `PixelCrop`을 만들고,
+    - `currentCompletedCrop`에 `_cropRatio`를 임시 저장(후속 저장/재적용에 사용)
+
+#### C) “영역 추가/업데이트” 단일 클릭 보장
+
+- **파일**: `frontend/app/page.tsx`
+  - **함수**: `applyCropArea`
+  - **검색 키워드**: `const applyCropArea = useCallback`
+  - **역할**
+    - `cropData` 인자를 우선 사용하고, 없을 때만 `pendingCropData`를 사용
+    - `editingAreaId`가 있으면 기존 영역 업데이트, 없으면 새 영역 추가
+    - PDF에서 “전체 페이지 적용”이면 각 페이지에 동일 영역을 생성
+  - **회귀 포인트**
+    - 업데이트가 “2번 클릭”이 되면 `pendingCropData` 같은 state에 의존하고 있을 확률이 큼  
+      → `applyCropArea(false, { cropPercent, finalCrop })`처럼 **현재 데이터(인자)** 로 호출하는지 확인
+
+#### D) “영역 추가” 버튼 노출/모달 분기(PDF 전체 적용)
+
+- **파일**: `frontend/app/page.tsx`
+  - **함수**: `addCropArea`
+  - **검색 키워드**: `const addCropArea = useCallback`
+  - **역할**
+    - 현재 `currentCompletedCrop`을 기반으로 `cropPercent`(0~100) + `finalCrop(px)` 생성
+    - PDF + 다중페이지 + (편집중 아님)인 경우:
+      - `setPendingCropData(...)` 후 `setShowApplyToAllModal(true)`로 모달 오픈
+    - 그 외(이미지/단일페이지/편집중)는 즉시 `applyCropArea(false, ...)` 호출
+  - **참고**
+    - 일반 모드에서 “전체 페이지 크롭 방지(40% 제한)”도 여기에서 수행
+
+#### E) 저장된 영역 편집: ReactCrop만 움직이게 만들기(단일 진실원천)
+
+- **파일**: `frontend/app/page.tsx`
+  - **함수**: `handleCropAreaClick`
+  - **검색 키워드**: `const handleCropAreaClick = useCallback`
+  - **역할**
+    - 저장된 영역 클릭 시 `cropPercent`가 있으면 **unit='%'** 로 `setCurrentCrop(...)`
+    - `setCurrentCompletedCrop(area.completedCrop)` + `setEditingAreaId(areaId)`
+    - 결과적으로 편집 모드에서 ReactCrop만 선택 박스로 표시되게 유도
+
+#### F) 저장 오버레이 숨김(편집 중 충돌 방지) / UI 문구 분기
+
+- **파일**: `frontend/app/page.tsx`
+  - **검색 키워드**
+    - `편집 모드에서는 저장된 오버레이를 숨기고 ReactCrop 박스만 보이게 해서`
+    - `{editingAreaId ?`
+    - `{editingAreaId && (`
+  - **역할**
+    - 편집 중에는 저장 오버레이를 숨기고 ReactCrop만 조작 가능하게 함
+    - “영역 추가/업데이트” 버튼 라벨도 `editingAreaId` 기준으로 분기
+
+#### G) 실제 이미지 크롭(blob 생성) - 원본/표시 크기 스케일링
+
+- **파일**: `frontend/utils/cropUtils.ts`
+  - **함수**: `cropImageToBlob(imageElement, cropArea, displaySize?)`
+  - **검색 키워드**: `export async function cropImageToBlob`
+  - **역할**
+    - `naturalWidth/naturalHeight`와 `displayWidth/displayHeight` 비율로 원본 좌표로 변환
+    - OCR 정확도를 위해 최소 해상도(600px) 및 약간의 업스케일 적용
+
 ---
 
 ## 12) 참고 파일
