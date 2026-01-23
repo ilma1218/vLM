@@ -33,6 +33,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
   const { isAuthenticated, token, user } = useAuth();
   const [recentFiles, setRecentFiles] = useState<FileGroup[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
 
   const userId = user?.email ? user.email : 'guest';
@@ -42,9 +43,11 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
     const fetchRecentStats = async () => {
       if (!isAuthenticated || !token) {
         setRecentFiles([]);
+        setStatsError(null);
         return;
       }
       setIsLoadingStats(true);
+      setStatsError(null);
       try {
         const response = await fetch(`${BACKEND_URL}/history?grouped=true`, {
           method: 'GET',
@@ -62,16 +65,22 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
           }
         } else if (response.status === 401) {
           setRecentFiles([]);
+          setStatsError(t('landing.statistics.loginRequired'));
+        } else {
+          setRecentFiles([]);
+          setStatsError(t('landing.statistics.loadFailed'));
         }
       } catch (error) {
         console.error('Failed to fetch recent stats:', error);
+        setRecentFiles([]);
+        setStatsError(t('landing.statistics.loadFailed'));
       } finally {
         setIsLoadingStats(false);
       }
     };
 
     fetchRecentStats();
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, token, t]);
 
 
   // 날짜 포맷팅
@@ -180,10 +189,9 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
       </div>
 
       {/* Statistics Section - Recent Savings */}
-      {recentFiles.length > 0 && (
-        <div className="w-full mb-12 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 py-12 px-4">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-8">
+      <div className="w-full mb-12 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 py-12 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-8">
             <div className="flex items-center">
               <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-2 mr-4 shadow-lg">
                 <TrendingUp className="w-6 h-6 text-white" />
@@ -200,71 +208,98 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
               {t('landing.calculator.title')}
             </button>
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {recentFiles.map((fileGroup, index) => {
-              const moneySaved = fileGroup.money_saved || 0;
-              const timeSavedMinutes = typeof fileGroup.time_saved_minutes === 'number'
-                ? fileGroup.time_saved_minutes
-                : fileGroup.total_records;
-              return (
-                <div
-                  key={index}
-                  className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 group"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center mb-2">
-                        <div className="bg-gradient-to-br from-blue-100 to-indigo-100 rounded-lg p-2 mr-3">
-                          <FileText className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors" title={fileGroup.filename}>
-                            {fileGroup.filename}
-                          </div>
-                          <div className="text-xs text-gray-500 font-medium mt-1">
-                            {userId}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-gray-500 font-medium ml-[44px]">
-                        {formatDate(fileGroup.latest_timestamp)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3 pt-4 border-t border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-gray-600 bg-gray-50 px-3 py-1.5 rounded-full">
-                        {t('landing.statistics.records')}: {fileGroup.total_records}개
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* 절약 시간 */}
-                      <div>
-                        <div className="text-xs text-gray-500 font-medium mb-1">
-                          {t('workspace.rightInspector.results.timeSaved')}
-                        </div>
-                        <div className="text-lg font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                          {Number.isInteger(timeSavedMinutes) ? timeSavedMinutes : timeSavedMinutes.toFixed(1)} {t('workspace.rightInspector.results.minutes')}
-                        </div>
-                      </div>
-                      {/* 절약 금액 */}
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500 font-medium mb-1">
-                          {t('landing.statistics.saved')}
-                        </div>
-                        <div className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                          {Math.round(moneySaved).toLocaleString('ko-KR')} {t('landing.statistics.won')}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+            {!isAuthenticated ? (
+              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
+                <div className="text-sm font-semibold text-gray-800">{t('landing.statistics.loginRequired')}</div>
+              </div>
+            ) : isLoadingStats ? (
+              <>
+                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
+                  <div className="h-4 w-2/3 bg-gray-200 rounded mb-3" />
+                  <div className="h-3 w-1/3 bg-gray-100 rounded mb-6" />
+                  <div className="h-16 bg-gray-100 rounded" />
                 </div>
-              );
-            })}
-            </div>
+                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg hidden md:block">
+                  <div className="h-4 w-2/3 bg-gray-200 rounded mb-3" />
+                  <div className="h-3 w-1/3 bg-gray-100 rounded mb-6" />
+                  <div className="h-16 bg-gray-100 rounded" />
+                </div>
+                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg hidden lg:block">
+                  <div className="h-4 w-2/3 bg-gray-200 rounded mb-3" />
+                  <div className="h-3 w-1/3 bg-gray-100 rounded mb-6" />
+                  <div className="h-16 bg-gray-100 rounded" />
+                </div>
+              </>
+            ) : statsError ? (
+              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
+                <div className="text-sm font-semibold text-red-700">{statsError}</div>
+              </div>
+            ) : recentFiles.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
+                <div className="text-sm font-semibold text-gray-800">{t('landing.statistics.noRecords')}</div>
+              </div>
+            ) : (
+              recentFiles.map((fileGroup, index) => {
+                const moneySaved = fileGroup.money_saved || 0;
+                const timeSavedMinutes =
+                  typeof fileGroup.time_saved_minutes === 'number' ? fileGroup.time_saved_minutes : fileGroup.total_records;
+                return (
+                  <div
+                    key={index}
+                    className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 group"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center mb-2">
+                          <div className="bg-gradient-to-br from-blue-100 to-indigo-100 rounded-lg p-2 mr-3">
+                            <FileText className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div
+                              className="text-sm font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors"
+                              title={fileGroup.filename}
+                            >
+                              {fileGroup.filename}
+                            </div>
+                            <div className="text-xs text-gray-500 font-medium mt-1">{userId}</div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-500 font-medium ml-[44px]">{formatDate(fileGroup.latest_timestamp)}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-3 pt-4 border-t border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-gray-600 bg-gray-50 px-3 py-1.5 rounded-full">
+                          {t('landing.statistics.records')}: {fileGroup.total_records}개
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* 절약 시간 */}
+                        <div>
+                          <div className="text-xs text-gray-500 font-medium mb-1">{t('workspace.rightInspector.results.timeSaved')}</div>
+                          <div className="text-lg font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                            {Number.isInteger(timeSavedMinutes) ? timeSavedMinutes : timeSavedMinutes.toFixed(1)}{' '}
+                            {t('workspace.rightInspector.results.minutes')}
+                          </div>
+                        </div>
+                        {/* 절약 금액 */}
+                        <div className="text-right">
+                          <div className="text-xs text-gray-500 font-medium mb-1">{t('landing.statistics.saved')}</div>
+                          <div className="text-lg font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                            {Math.round(moneySaved).toLocaleString('ko-KR')} {t('landing.statistics.won')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Time Savings Calculator Modal */}
       <TimeSavingsCalculator
@@ -274,4 +309,5 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
     </div>
   );
 }
+
 

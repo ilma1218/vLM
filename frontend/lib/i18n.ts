@@ -93,6 +93,9 @@ const translations = {
         records: '기록',
         saved: '절약',
         won: '원',
+        loginRequired: '최근 절약 현황을 보려면 로그인이 필요합니다.',
+        noRecords: '아직 표시할 기록이 없습니다. OCR 실행 후 저장하면 여기에 표시됩니다.',
+        loadFailed: '최근 절약 현황을 불러오지 못했습니다.',
       },
       calculator: {
         title: '예상시간절약 계산기',
@@ -503,6 +506,9 @@ const translations = {
         records: 'Records',
         saved: 'Saved',
         won: 'KRW',
+        loginRequired: 'Login is required to view recent savings.',
+        noRecords: 'No records to show yet. After running OCR and saving, it will appear here.',
+        loadFailed: 'Failed to load recent savings.',
       },
       calculator: {
         title: 'Time Savings Calculator',
@@ -913,6 +919,9 @@ const translations = {
         records: '記録',
         saved: '節約',
         won: '円',
+        loginRequired: '最近の節約状況を表示するにはログインが必要です。',
+        noRecords: '表示する記録がありません。OCRを実行して保存するとここに表示されます。',
+        loadFailed: '最近の節約状況の読み込みに失敗しました。',
       },
       calculator: {
         title: '予想時間節約計算機',
@@ -1308,6 +1317,9 @@ const translations = {
         records: '记录',
         saved: '节省',
         won: '元',
+        loginRequired: '查看最近节省情况需要登录。',
+        noRecords: '暂无可显示记录。执行OCR并保存后会显示在这里。',
+        loadFailed: '无法加载最近节省情况。',
       },
       calculator: {
         title: '预计时间节省计算器',
@@ -1703,6 +1715,9 @@ const translations = {
         records: 'Registros',
         saved: 'Ahorrado',
         won: 'EUR',
+        loginRequired: 'Se requiere iniciar sesión para ver los ahorros recientes.',
+        noRecords: 'Aún no hay registros para mostrar. Tras ejecutar OCR y guardar, aparecerán aquí.',
+        loadFailed: 'No se pudieron cargar los ahorros recientes.',
       },
       calculator: {
         title: 'Calculadora de Ahorro de Tiempo',
