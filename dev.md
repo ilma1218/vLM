@@ -162,6 +162,50 @@
   - 사용자 이메일은 `user_email_masked`로 마스킹되어 노출
   - 최신순으로 카드 표시
 
+#### 2-B.4.1 첫 페이지(홈 `/`) “최근 절약 현황” 리스트 — 프론트 구성/동작
+
+- **표시 위치/구현 파일**
+  - 위치: 홈(`/`) 상단(업로드 카드 아래) “Statistics Section - Recent Savings”
+  - 파일: `frontend/components/LandingState.tsx`
+  - 표시명(i18n): `landing.statistics.title` (기본: “최근 절약 현황”)
+
+- **API 호출(로그인 불필요, 전체 사용자 기준)**
+  - 호출: `GET /public/recent-savings?limit=6`
+  - 목적: “특정 로그인 사용자의 히스토리”가 아니라 **전체 사용자의 최신 절약 현황을 최신순으로 카드 형태로 노출**
+  - 개인정보: 백엔드가 `user_email_masked`로 마스킹된 값을 내려주며, 프론트는 이를 그대로 표시합니다.
+
+- **프론트 데이터 모델(통계용)**
+  - `recentFiles: FileGroup[]` (LandingState 내부 state)
+  - 렌더링에 주로 쓰는 필드:
+    - `filename`
+    - `total_records`
+    - `time_saved_minutes`, `money_saved`
+    - `latest_timestamp`
+    - `user_email_masked`
+
+- **로딩/에러/빈 데이터 UX(“섹션은 항상 노출”)**
+  - 로딩 중: skeleton 카드 1~3개 표시 (`isLoadingStats`)
+  - 실패: `landing.statistics.loadFailed` 문구를 카드로 표시 (`statsError`)
+  - 데이터 없음: `landing.statistics.noRecords` 문구를 카드로 표시 (`recentFiles.length === 0`)
+  - 핵심: 데이터가 0건이어도 섹션 자체를 숨기지 않고 “상태 메시지”로 안내합니다.
+
+- **카드 UI 출력 규칙(요약)**
+  - 사용자 표시: `user_email_masked`를 우선 사용
+  - 시간 표시: `formatDate(latest_timestamp)` (현재 구현은 `ko-KR` 포맷)
+  - 절약 시간: `time_saved_minutes`를 분(min) 단위로 표시
+  - 절약 금액: `money_saved`를 원 단위로 표시(반올림 + `toLocaleString('ko-KR')`)
+
+- **관련 i18n 키**
+  - `landing.statistics.title`, `landing.statistics.records`, `landing.statistics.saved`, `landing.statistics.won`
+  - 상태 메시지: `landing.statistics.noRecords`, `landing.statistics.loadFailed`
+
+#### 2-B.4.2 백엔드 `/public/recent-savings` 반환 형태(요약)
+
+- 파일: `backend/main.py`
+- 반환은 “/history grouped 응답과 유사한 집계 구조”이며, 다음 필드를 포함합니다(프론트가 카드 렌더에 사용):
+  - `filename`, `total_records`, `time_saved_minutes`, `money_saved`, `latest_timestamp`, `user_email_masked`
+  - (추가 메타) `pages_count`, `areas_count`, `total_chars`, `time_basis`, `date`, `first_timestamp`
+
 ---
 
 ## 2-A) “정상 작동”을 위한 필수 조건/환경 설정 (체크리스트)
