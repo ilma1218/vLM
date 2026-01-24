@@ -733,6 +733,43 @@ React state는 비동기 업데이트라서,
 
 이 섹션은 **다른 서버/다른 프로젝트에서 동일 UX를 다시 구현**할 수 있도록, 워크스페이스(`/`)의 요구사항을 “상태 모델 + 구현 순서 + API 계약”으로 정리합니다.
 
+#### 13.8.0 “4단 분리” 설계 의도(영역지정 페이지를 다시 만들기 위한 핵심)
+
+영역지정(워크스페이스) 페이지는 기능이 많아서 한 컴포넌트/한 흐름에 모두 섞으면 유지보수가 급격히 어려워집니다.  
+현재 구현은 사용자 경험을 **4개의 단계(단)**로 분리해 “입력 → 선택 → 실행 → 확정(저장)”의 책임 경계를 명확히 둡니다.
+
+- **1단: 문서 준비(업로드/렌더/페이지 이동)**
+  - **목표**: OCR 대상 “원본”을 안정적으로 화면에 보여주고, 페이지 단위 컨텍스트를 만든다.
+  - **입력**: 파일(PDF/이미지)
+  - **출력/상태**: `isPdf`, `pdfCanvases`, `thumbnails`, `totalPages`, `currentPage`, `imageSrc`
+  - **주의**: “렌더링/페이지 이동”은 OCR/저장 로직과 분리(페이지 이동이 OCR 결과를 깨지 않게)
+
+- **2단: 영역 지정/관리(ReactCrop + 영역 리스트)**
+  - **목표**: 사용자가 “어디를 읽을지”를 결정하고, 그 결정을 **% 좌표**로 영속화한다.
+  - **입력**: 현재 페이지의 이미지/캔버스(표시 크기 포함)
+  - **출력/상태**: `cropAreasByPage(Map)`, `CropAreaData.cropPercent(%)`, `completedCrop(px)`, `editingAreaId`, `pendingCropData`
+  - **주의**:
+    - 저장/복원/페이지 복사는 **% 좌표(`cropPercent`)** 기준
+    - 실제 OCR 실행은 **px 좌표로 변환**(스케일링 포함)
+
+- **3단: OCR 실행/수집(중지 가능)**
+  - **목표**: (일반) 영역 단위, (고급) 영역 또는 페이지 전체 단위로 OCR을 수행하고 결과를 누적한다.
+  - **입력**: `cropAreasByPage` 또는 `autoCollectFullPage`
+  - **출력/상태**: `ocrResultsData`(저장 버튼 입력), `ocrResult`(화면 출력), `croppedPreviews`(썸네일), `processedPagesSet`, `AbortController`
+  - **주의**:
+    - OCR은 `/ocr`만 호출(크레딧/히스토리 변경 없음)
+    - “중지”는 `AbortController.abort()`로 네트워크를 끊어 UI가 멈추지 않게
+
+- **4단: 결과 확정(후처리/절약 계산/저장)**
+  - **목표**: 결과 텍스트를 사용자에게 보여주고, 절약 시간을 계산한 뒤, 사용자가 원할 때만 저장한다.
+  - **입력**: `ocrResultsData`, `ocrMode`, `extractKeys`, `processedPagesSet`, (일반 모드) `totalChars`
+  - **출력/상태**: 절약 시간/금액(`timeSavedMinutes`, `moneySaved`), 저장 요청(`/history/save`), 크레딧 갱신 이벤트(`billing:refresh`)
+  - **주의**:
+    - 저장은 `/history/save` 단일 경로로 유지(크레딧 차감/중복 방지 정책 일관성)
+    - OCR 완료 후 버튼 라벨은 “OCR 재실행”으로 전환(UX: 동일 설정으로 반복 실행 가능)
+
+이 “4단 분리”를 지키면, **각 단을 독립적으로 디버깅/개선**할 수 있고(예: 크롭만 수정, OCR 파이프라인만 교체), 멀티파일/고급 모드 기능 확장 시에도 폭발적으로 복잡해지지 않습니다.
+
 #### 13.8.1 구현 대상 기능(요구사항 체크리스트)
 
 - **일반 모드 / 고급 모드**
@@ -754,6 +791,97 @@ React state는 비동기 업데이트라서,
   - 일반: 총 글자수 기반 \( \text{minutes}=\frac{\text{totalChars}}{180} \)
   - 고급: key:value 개수/페이지 기반 \( \text{minutes}=\frac{\text{keys} \times \text{pages} \times 10}{60} \)
   - 금액: \( \text{money}=\frac{\text{minutes}}{60}\times \text{hourlyWage} \)
+
+##### 13.8.1.1 일반 모드(standard) — Data 구성 및 기능(상세)
+
+일반 모드는 “사람이 문서를 보고 그대로 타이핑하는 전사 작업”을 대체하는 UX입니다.  
+핵심은 **(1) 크롭으로 ‘읽을 영역’을 정하고 (2) OCR 결과를 “plain text”로 누적**하는 것입니다.
+
+- **UI/입력**
+  - **언어 선택(`selectedLanguage`)**: ko/en (일반 모드 프롬프트/후처리 톤에 영향)
+  - **영역 선택(필수)**: `cropAreasByPage`에 저장된 영역들을 대상으로 OCR 수행
+  - (PDF) 페이지 이동/썸네일/페이지별 영역 표시(페이지마다 영역 개수 뱃지)
+
+- **OCR 호출 방식**
+  - **단위**: “영역(크롭) 1개 = `/ocr` 1회”
+  - **전송 데이터**: `file`(크롭 이미지 blob), `filename`, `page_number`, `custom_prompt`(일반 모드 기본 프롬프트)
+  - **결과 형태**: `extracted_text`는 **plain text 문자열**(사용자에게 바로 보여줄 “전사 결과”)
+
+- **결과 Data(프론트 내부)**
+  - `ocrResult: string | null`
+    - 화면 우측 결과 패널에 보여주는 “통합 결과 문자열”
+    - 일반 모드는 사람이 복사/붙여넣기 하기 쉬운 형태(헤더 + 본문 누적)
+  - `ocrResultsData[]`
+    - 저장 버튼(`/history/save`)에 들어가는 “원자 데이터” (아래 13.8.1.3 참고)
+  - `processedAreasCount`
+    - 진행률/상태 UI에 사용(총 처리 영역 수)
+
+- **핵심 기능**
+  - **OCR 실행/중지/재실행**
+    - 중지: `AbortController.abort()`로 네트워크 취소
+    - OCR 완료 후 버튼 라벨을 “OCR 재실행”으로 바꿔 반복 실행 UX 제공
+  - **절약 계산(일반 모드)**
+    - 총 글자수(공백 포함) 기반으로 시간/금액 계산(13.8.7.2)
+    - “영역 개수”가 아니라 “실제 입력해야 할 문자량”이 기준이라 설득력이 높음
+
+##### 13.8.1.2 고급 모드(advanced) — Data 구성 및 기능(상세)
+
+고급 모드는 “문서 내용을 사람이 **정해진 항목(키)으로 분해하여 정리**하는 작업”을 대체하는 UX입니다.  
+핵심은 **(1) 추출 항목(keys)과 프롬프트를 구성하고 (2) 결과를 key:value 구조로 받는 것**입니다.
+
+- **UI/입력**
+  - **추출 항목 태그(`extractKeys: string[]`)**
+    - Enter로 추가 / Backspace로 마지막 태그 삭제 / 중복 방지
+    - 한글 IME 조합 입력은 `isComposing` 처리 필수(Enter 오작동 방지)
+  - **자주쓰는 양식(프리셋)**
+    - `PRESETS`(예: 영수증/명함/세금계산서 등) → `loadPreset()`로 keys 세트 즉시 구성
+  - **양식 저장(서버)**
+    - `GET/POST/DELETE /extract-keys`로 사용자별 “keys 리스트” 저장/불러오기/삭제
+  - **(선택) 커스텀 프롬프트 + 저장**
+    - `customPrompt` 직접 입력 + `GET/POST/DELETE /prompts`
+  - **페이지 전체 자동수집(`autoCollectFullPage`)**
+    - true면 “영역 없이 페이지 전체 이미지”를 대상으로 OCR (선택 영역이 없어도 진행 가능)
+
+- **OCR 호출 방식**
+  - **단위**
+    - 기본: “영역(크롭) 1개 = `/ocr` 1회”
+    - 옵션: “페이지 1개(전체) = `/ocr` 1회” (`autoCollectFullPage===true`)
+  - **전송 데이터**: `file`, `filename`, `page_number`, `custom_prompt`
+    - 고급 모드 `custom_prompt`는 보통 “keys 목록을 포함한 지시문”으로 생성/조합됨
+  - **결과 형태**
+    - `extracted_text`가 **JSON 문자열(또는 JSON에 준하는 텍스트)**일 수 있음
+    - 즉, 일반 모드처럼 “그대로 복사할 문장”이 아니라 “구조화된 데이터”가 목표
+
+- **결과 Data(프론트 내부)**
+  - `ocrResult`
+    - 화면 출력은 사람이 읽기 좋은 형태로 누적(예: 페이지/영역 헤더 + JSON 텍스트)
+  - `ocrResultsData[]`
+    - 저장에 필요한 원자 데이터는 동일 구조(단, `extracted_text` 내용이 구조화됨)
+  - `processedPagesSet`
+    - 특히 `autoCollectFullPage`에서 “실제 처리 페이지 수” 추적(절약 계산/상태 표시)
+
+- **핵심 기능**
+  - **keys 중심의 데이터 모델**
+    - 고급 모드는 “keys(요구 스키마)가 바뀌면 결과 구조가 바뀌는” 설계이므로,
+      UI에서 keys를 쉽게 편집/저장/재사용할 수 있어야 합니다.
+  - **절약 계산(고급 모드)**
+    - 현재 구현은 “키 개수(`extractKeys.length`) × 처리 페이지 수 × 10초” 근사(13.8.7.3)
+    - 실제 pair 개수(파싱 기반)로 바꾸고 싶다면, `extracted_text` JSON 파싱 규칙부터 고정해야 함
+
+##### 13.8.1.3 공통 Data 저장 단위(저장/히스토리 관점)
+
+일반/고급 모드 모두 **저장(History)은 동일한 원자 데이터 구조로 처리**합니다.  
+즉, 모드에 따라 “표현/내용”은 달라도 **저장 단위는 `ocrResultsData[]`(영역/페이지별 레코드)**로 통일됩니다.
+
+- **`ocrResultsData`(권장 단일 소스)**
+  - 형태: `Array<{ extracted_text, cropped_image(base64), filename, page_number|null }>`
+  - 의미:
+    - `extracted_text`: 일반=plain text / 고급=구조화(JSON 등)
+    - `cropped_image`: 히스토리 썸네일 및 저장 데이터
+    - `filename`, `page_number`: 파일/페이지 집계 및 히스토리 그룹핑 기준
+- **저장 API**
+  - `POST /history/save` (로그인 필요, 크레딧 차감/중복 방지 정책 포함)
+  - `save_session_id`로 동일 세션 중복 차감 방지(백엔드 UNIQUE 제약)
 
 #### 13.8.2 “어디를 보면 되나?” 파일/모듈 지도
 
@@ -813,6 +941,48 @@ React state는 비동기 업데이트라서,
 4) **영역 리스트/편집/삭제 + (PDF) 전체 페이지 적용**
    - 페이지 이동 시 해당 페이지에 영역이 없으면 첫 페이지 영역을 복사하는 전략(UX 안정)
    - “전체 적용 모달”은 `pendingCropData`로 현재 crop을 캡처해 두고, 확인 시 `applyCropArea(true, cropData)`로 생성
+
+##### 13.8.4.1 (PDF) “영역 지정 후 다른 페이지 적용 여부” 결정 로직(중요)
+
+다중 페이지 PDF에서 사용자가 영역을 한 번 지정했을 때, 그 영역을 **현재 페이지에만 적용할지 / 모든 페이지에 적용할지**를 사용자가 선택하도록 되어 있습니다.  
+또한 “페이지별로 반복 지정” 부담을 줄이기 위해, **특정 페이지에 영역이 없으면 1페이지 영역을 자동 복사**하는 보조 로직이 함께 동작합니다.
+
+- **A) 수동 선택: ‘현재 페이지만’ vs ‘모든 페이지’(Apply-to-all 모달)**
+  - **트리거**
+    - 사용자가 ReactCrop으로 박스를 만든 뒤 “영역 추가”를 누를 때
+    - 조건: `isPdf && totalPages > 1 && !editingAreaId`
+      - PDF이고, 페이지가 2장 이상이며, “편집 중(기존 영역 업데이트)”이 아닐 때만 모달을 띄웁니다.
+  - **데이터 캡처(pending)**
+    - 모달을 띄우기 전에, 현재 크롭을 아래 형태로 `pendingCropData`에 저장합니다.
+      - `cropPercent`: 0~100% 좌표(저장/복원/페이지 복사 기준)
+      - `finalCrop`: 현재 표시 크기 기준 px 좌표(즉시 UI 표시용)
+  - **사용자 선택 → 적용 함수**
+    - “현재 페이지만”: `applyCropArea(false, pendingCropData)`
+    - “모든 페이지”: `applyCropArea(true, pendingCropData)`
+  - **적용(추가) 규칙**
+    - `applyToAllPages === true`면 1..N 모든 페이지에 동일한 `cropPercent`를 추가합니다.
+    - 각 페이지에 들어가는 레코드는 `pageNumber`만 다르고, “같은 모양의 영역”이 페이지마다 생성되는 구조입니다.
+  - **편집 모드 예외**
+    - `editingAreaId !== null`인 경우는 “다른 페이지 적용”이 아니라 **현재 페이지의 해당 영역만 업데이트**합니다.
+    - 이때는 모달을 띄우지 않고, `cropPercent`/`completedCrop(px)`를 해당 영역에 덮어씁니다.
+
+- **B) 자동 보조: ‘영역이 없는 페이지’에 1페이지 영역 자동 복사(UX 안정)**
+  - **목표**: 사용자가 페이지마다 매번 영역을 다시 그리지 않도록, “기본 템플릿”처럼 1페이지 영역을 재사용합니다.
+  - **동작 시점(대표 2곳)**
+    - 페이지 이동(`handlePageChange(newPage)`) 직후, 해당 페이지에 저장된 영역이 없으면 복사
+    - 이미지 로드(`onImageLoad`) 시, 현재 페이지에 영역이 없고 `currentPage > 1`이면 복사
+  - **복사 조건(핵심)**
+    - `newPage > 1`
+    - `newPageAreas.length === 0` (대상 페이지에 영역이 아직 없음)
+    - `firstPageAreas.length > 0` (1페이지에 영역이 존재)
+    - OCR 처리 중이 아닐 때만 복원/세팅(`!isProcessing`)하여 UI가 흔들리지 않게 함
+  - **복사 데이터**
+    - 1페이지의 각 영역에서 **`cropPercent`를 그대로 복제**하고 `pageNumber`를 대상 페이지로 바꿉니다.
+    - UI 표시를 위해 대상 페이지의 현재 이미지 크기에 맞춰 `completedCrop(px)`도 다시 계산해 넣습니다.
+  - **UI 초기 선택**
+    - 복사 후(또는 이미 영역이 있으면) “첫 번째 영역”을 현재 크롭으로 세팅해 사용자가 즉시 미세조정할 수 있게 합니다.
+
+> 구현 위치 참고: `frontend/app/page.tsx`의 `addCropArea`(모달 트리거), `applyCropArea`(적용), `handlePageChange`/`onImageLoad`(1페이지 영역 자동 복사)
 
 5) **선택영역 미리보기 만들기**
    - OCR 실행 시 각 영역의 Blob을 만들고 `URL.createObjectURL(blob)`로 미리보기 URL 생성
