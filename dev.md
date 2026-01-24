@@ -52,7 +52,110 @@
   - 사용자별로 저장된 OCR 기록만 표시(JWT 인증 기반)
   - 파일/세션 단위 그룹 뷰 + 레코드 단위 상세/편집/삭제
 
-### 2-B.3 공개 통계(랜딩 상단 “최근 절약 현황”)
+### 2-B.3 `/monitor`(히스토리) — 결과 미리보기/수정/삭제 로직(재구현용)
+
+이 섹션은 히스토리 페이지에서 “결과를 미리보고(이미지+텍스트), 텍스트를 수정하고, 삭제하는” 흐름을 **프론트 상태 모델 + 백엔드 API 계약**으로 정리합니다.  
+프론트 구현은 `frontend/app/monitor/page.tsx`, 백엔드는 `backend/main.py`의 `/history*` 엔드포인트들입니다.
+
+#### 2-B.3.1 데이터 구조(프론트)
+
+- **파일(세션) 그룹**: `FileGroup`
+  - `filename`: 파일명
+  - `first_timestamp`: “같은 파일명”이 여러 번 저장된 경우 세션을 구분하기 위한 값(그룹 키 구성에 사용)
+  - `latest_timestamp`: 최신 기록 시간(정렬/표시)
+  - `total_records`: 그룹 내 레코드 수
+  - `records?`: `include_records=true`일 때만 포함(목록 성능/응답 크기 최적화 목적)
+- **레코드(단일 OCR 결과)**: `OCRRecord`
+  - `id`, `timestamp`, `page_number?`
+  - `extracted_text`: 결과 텍스트(일반=plain text / 고급=JSON 문자열일 수 있음)
+  - `cropped_image?`: base64 이미지(목록에서는 보통 제외, 상세 조회에서만 포함)
+
+#### 2-B.3.2 히스토리 조회(목록) — 그룹/접힘/성능
+
+- **조회 호출**
+  - 프론트: `GET /history?grouped=true&include_records=true`
+  - 헤더: `Authorization: Bearer <JWT>`
+- **그룹 접힘/펼침 상태**
+  - 프론트는 고유 그룹 키를 아래 규칙으로 생성합니다:
+    - `groupKey = first_timestamp ? \`\${filename}_\${first_timestamp}\` : filename`
+  - `expandedFiles: Set<string>`에 groupKey를 저장해 접힘/펼침을 제어합니다.
+  - 첫 그룹 자동 펼침은 `didAutoExpandRef`로 **최초 1회만** 실행하여, 사용자가 접어둔 상태가 fetchHistory로 되돌아가지 않게 합니다.
+- **응답 크기 최적화(이미지 제외)**
+  - 백엔드는 grouped 조회에서 `records[]`를 만들어도 **`cropped_image`는 제외**합니다(응답이 커져 UI/서버가 느려지는 것을 방지).
+  - 이미지는 상세 진입 시 `GET /history/{id}`로만 가져옵니다.
+
+#### 2-B.3.3 결과 “미리보기”(상세 보기) 진입
+
+- 리스트의 레코드를 클릭하면 `selectedRecord`를 세팅하고 “상세 모드”로 전환합니다.
+- 클릭한 레코드에 `cropped_image`가 없으면(대부분 없음) 아래 보강 조회를 시도합니다:
+  - `GET /history/{record_id}` (JWT 필요, 이미지 포함)
+  - 실패해도 UX가 깨지지 않게: 이미지 없이도 텍스트는 보여줄 수 있으므로 기존 레코드로 fallback
+- 상세 화면 구성:
+  - 좌측: `cropped_image`(있으면 `data:image/png;base64,...`로 렌더)
+  - 우측: `extracted_text`(기본 read-only)
+  - 레코드 이동: 편집/삭제확인 중이 아닐 때 `←/→` 키로 이전/다음 레코드 이동
+
+#### 2-B.3.4 수정(Edit) — 원본/수정 비교 + 저장 반영
+
+- **편집 시작**
+  - `handleEdit()` → `editedText = selectedRecord.extracted_text`, `isEditing=true`
+- **편집 UI**
+  - 원본 텍스트(읽기 전용)
+  - 수정 중 텍스트(줄 단위 비교, 변경된 줄 강조)
+  - textarea(실제 수정 입력)
+- **저장 호출**
+  - `PUT /history/{record_id}` (FormData)
+  - 전송: `extracted_text`만 업데이트
+  - 응답: 업데이트된 레코드(JSON, 이미지 포함)
+- **프론트 반영(중요)**
+  - `selectedRecord`를 업데이트된 레코드로 교체
+  - `files[].records[]` 안의 동일 `id` 레코드도 같이 교체하여 “목록/상세 불일치”를 방지
+
+#### 2-B.3.5 삭제(Delete) — 단일/다중/파일그룹 단위
+
+- **A) 단일 레코드 삭제**
+  - `DELETE /history/{record_id}` (JWT 필요)
+  - 성공 시:
+    - 그룹 내 records에서 해당 레코드 제거
+    - `total_records` 갱신, 0개면 그룹 제거
+    - 상세 화면이면 `selectedRecord=null`로 리스트로 복귀
+
+- **B) 다중 레코드 삭제(선택 삭제)**
+  - UI: 다중 선택 모드에서 `selectedRecordIds: Set<number>` 관리
+  - API: `POST /history/delete-multiple` (JWT 필요)
+    - body: JSON 배열 `[id1, id2, ...]`
+    - 응답: `deleted_ids[]`
+  - 성공 시:
+    - 모든 그룹에서 `deleted_ids`를 필터링해 제거
+    - 0개 그룹은 제거
+    - 상세로 보고 있던 레코드가 삭제되었으면 선택 해제
+
+- **C) 파일(세션) 그룹 삭제**
+  - API: `DELETE /history/file/{filename}?first_timestamp=<ISO>` (JWT 필요)
+  - 의미:
+    - 같은 파일명이라도 세션(저장 시점 그룹)을 분리하기 위해 `first_timestamp`를 함께 전달
+  - 백엔드 동작:
+    - `first_timestamp`가 있으면 해당 시각 기준 **±10분 범위** 레코드를 같은 그룹으로 보고 삭제
+  - 프론트 처리:
+    - 삭제된 groupKey를 목록에서 제거
+    - `fetchHistory()`로 재조회하여 서버와 싱크 맞춤
+
+#### 2-B.3.6 백엔드 API 계약(요약)
+
+- `GET /history?grouped=true&include_records=true`
+  - 그룹 목록 + 레코드 메타(이미지 제외)
+- `GET /history/{record_id}`
+  - 단일 레코드 상세(이미지 포함), 본인 소유만 조회 가능
+- `PUT /history/{record_id}` (Form: `extracted_text`)
+  - 텍스트 수정
+- `DELETE /history/{record_id}`
+  - 단일 레코드 삭제
+- `POST /history/delete-multiple` (JSON: `[ids...]`)
+  - 다중 레코드 삭제(본인 소유만)
+- `DELETE /history/file/{filename}?first_timestamp=<ISO>`
+  - 파일(세션) 단위 삭제(본인 소유만, timestamp ±10분 범위)
+
+### 2-B.4 공개 통계(랜딩 상단 “최근 절약 현황”)
 - **API**: `GET /public/recent-savings?limit=6`
 - **특징**:
   - 인증 불필요
