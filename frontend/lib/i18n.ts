@@ -2117,7 +2117,12 @@ export function useLanguage() {
       notifyLanguageChange(lang);
     }
   }, []);
-  
-  return { language, changeLanguage, t: (key: string) => t(key, language) };
+
+  // 중요: 반환하는 t 함수 레퍼런스를 안정화해야
+  // 컴포넌트의 useEffect([t]) 같은 의존성이 불필요하게 반복 실행되어
+  // 로딩 UI가 깜빡이는 현상을 막을 수 있습니다.
+  const translate = useCallback((key: string) => t(key, language), [language]);
+
+  return { language, changeLanguage, t: translate };
 }
 
