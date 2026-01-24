@@ -88,6 +88,21 @@ def require_auth_email(authorization: Optional[str]) -> str:
     return email.strip().lower()
 
 
+def _mask_email(email: Optional[str]) -> str:
+    """
+    공개 통계용: 이메일을 최소한으로만 노출(마스킹)합니다.
+    예) user@example.com -> us***@example.com
+    """
+    if not email:
+        return "unknown"
+    email = email.strip().lower()
+    if "@" not in email:
+        return (email[:2] + "***") if len(email) > 2 else "***"
+    local, domain = email.split("@", 1)
+    local_mask = (local[:2] + "***") if len(local) > 2 else (local[:1] + "***")
+    return f"{local_mask}@{domain}"
+
+
 class AuthSignupRequest(BaseModel):
     email: str
     password: str
@@ -854,6 +869,115 @@ async def get_history(
         error_detail = f"Failed to fetch history: {str(e)}\n{traceback.format_exc()}"
         print(f"History API Error: {error_detail}")  # 서버 로그에 출력
         raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+
+
+@app.get("/public/recent-savings")
+async def public_recent_savings(
+    limit: int = Query(6, ge=1, le=50),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """
+    공개용 '최근 절약 현황' (전체 사용자 기준, 최신순).
+    - 인증 불필요
+    - 개인정보 최소화를 위해 email은 마스킹해서 반환
+    - 성능을 위해 최근 N일 데이터만 조회
+
+    반환은 /history?grouped=true와 유사하되, 그룹 키에 email을 포함하여
+    동일 파일명이라도 사용자별로 섞이지 않게 합니다.
+    """
+    from collections import defaultdict
+    from datetime import datetime, timedelta
+
+    thirty_days_ago = datetime.utcnow() - timedelta(days=days)
+    records = (
+        db.query(OCRRecord)
+        .filter(OCRRecord.timestamp >= thirty_days_ago)
+        .order_by(OCRRecord.timestamp.desc())
+        .all()
+    )
+
+    # 그룹화 키: (email, filename, date)
+    grouped_map = defaultdict(list)
+    for r in records:
+        owner = (r.email or "unknown").strip().lower()
+        filename = r.filename or "Unknown"
+        record_date = r.timestamp.date()
+        grouped_map[(owner, filename, record_date)].append(r)
+
+    MINIMUM_WAGE_PER_HOUR = 10320
+    TYPING_CPM = 180
+
+    results = []
+    for (owner, filename, record_date), daily_records in grouped_map.items():
+        # 최신순 정렬
+        daily_records.sort(key=lambda x: x.timestamp, reverse=True)
+
+        pages_set = set()
+        images_count = 0
+        for r in daily_records:
+            if r.page_number is not None:
+                pages_set.add(r.page_number)
+            else:
+                images_count += 1
+
+        unique_pages_count = len(pages_set)
+        if images_count > 0:
+            unique_pages_count = max(unique_pages_count, 1)
+
+        total_records = len(daily_records)
+        if unique_pages_count and unique_pages_count > 0:
+            areas_est = max(1, int(round(total_records / unique_pages_count))) if total_records > 0 else 0
+        else:
+            areas_est = total_records
+
+        kv_counts = []
+        total_chars = 0
+        for r in daily_records:
+            txt = (r.extracted_text or "")
+            total_chars += len(txt)
+            s = txt.strip()
+            if not s:
+                continue
+            try:
+                obj = json.loads(s)
+                if isinstance(obj, dict):
+                    kv_counts.append(len(obj.keys()))
+            except Exception:
+                pass
+
+        is_advanced_est = len(kv_counts) > 0
+        if is_advanced_est:
+            kv_counts_sorted = sorted(kv_counts)
+            kv_est = kv_counts_sorted[len(kv_counts_sorted) // 2]
+            time_saved_minutes = (kv_est * unique_pages_count * 10) / 60.0
+            time_basis = "advanced"
+        else:
+            time_saved_minutes = (float(total_chars) / float(TYPING_CPM)) if TYPING_CPM > 0 else 0.0
+            time_basis = "standard_chars"
+
+        money_saved = (time_saved_minutes / 60) * MINIMUM_WAGE_PER_HOUR
+
+        results.append(
+            {
+                "filename": filename,
+                "total_records": total_records,
+                "pages_count": unique_pages_count,
+                "areas_count": areas_est,
+                "time_saved_minutes": round(time_saved_minutes, 2),
+                "time_basis": time_basis,
+                "total_chars": int(total_chars),
+                "money_saved": round(money_saved, 2),
+                "latest_timestamp": daily_records[0].timestamp.isoformat() if daily_records else None,
+                "first_timestamp": daily_records[-1].timestamp.isoformat() if daily_records else None,
+                "date": record_date.isoformat(),
+                "user_email_masked": _mask_email(owner),
+            }
+        )
+
+    # 최신순 정렬 후 limit 적용
+    results.sort(key=lambda x: x["latest_timestamp"] or "", reverse=True)
+    return results[:limit]
 
 
 @app.get("/history/{record_id}")

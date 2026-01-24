@@ -20,6 +20,7 @@ interface FileGroup {
   latest_timestamp: string;
   first_timestamp?: string;
   date?: string;
+  user_email_masked?: string;
 }
 
 interface LandingStateProps {
@@ -41,31 +42,22 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
   // 최근 파일 통계 가져오기
   useEffect(() => {
     const fetchRecentStats = async () => {
-      if (!isAuthenticated || !token) {
-        setRecentFiles([]);
-        setStatsError(null);
-        return;
-      }
       setIsLoadingStats(true);
       setStatsError(null);
       try {
-        const response = await fetch(`${BACKEND_URL}/history?grouped=true`, {
+        // 공개 통계: 전체 사용자 기준 최신순
+        const response = await fetch(`${BACKEND_URL}/public/recent-savings?limit=6`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
         });
 
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data)) {
-            // 최근 6개 파일만 가져오기
-            setRecentFiles(data.slice(0, 6));
+            setRecentFiles(data);
           }
-        } else if (response.status === 401) {
-          setRecentFiles([]);
-          setStatsError(t('landing.statistics.loginRequired'));
         } else {
           setRecentFiles([]);
           setStatsError(t('landing.statistics.loadFailed'));
@@ -80,7 +72,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
     };
 
     fetchRecentStats();
-  }, [isAuthenticated, token, t]);
+  }, [t]);
 
 
   // 날짜 포맷팅
@@ -210,11 +202,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {!isAuthenticated ? (
-              <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
-                <div className="text-sm font-semibold text-gray-800">{t('landing.statistics.loginRequired')}</div>
-              </div>
-            ) : isLoadingStats ? (
+            {isLoadingStats ? (
               <>
                 <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-lg">
                   <div className="h-4 w-2/3 bg-gray-200 rounded mb-3" />
@@ -245,6 +233,9 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
                 const moneySaved = fileGroup.money_saved || 0;
                 const timeSavedMinutes =
                   typeof fileGroup.time_saved_minutes === 'number' ? fileGroup.time_saved_minutes : fileGroup.total_records;
+                const displayUser =
+                  fileGroup.user_email_masked ||
+                  (isAuthenticated ? userId : 'unknown');
                 return (
                   <div
                     key={index}
@@ -263,7 +254,7 @@ export default function LandingState({ onFileSelect, fileInputRef, ocrMode = 'st
                             >
                               {fileGroup.filename}
                             </div>
-                            <div className="text-xs text-gray-500 font-medium mt-1">{userId}</div>
+                            <div className="text-xs text-gray-500 font-medium mt-1">{displayUser}</div>
                           </div>
                         </div>
                         <div className="text-xs text-gray-500 font-medium ml-[44px]">{formatDate(fileGroup.latest_timestamp)}</div>
