@@ -215,6 +215,39 @@ scp /home/work/vLM/backend/ocr_history.db <NEW_SERVER>:/home/work/vLM/backend/oc
 rm -f /home/work/vLM/backend/ocr_history.db*
 ```
 
+#### DB 스크립트(배포 포함): 초기화/백업/복원
+
+DB는 기본적으로 **백엔드 실행 시 자동으로 테이블 생성/스키마 보강**이 되지만,  
+운영/이관을 위해 아래 스크립트를 레포에 포함해 두었습니다:
+
+- **테이블 생성/스키마 보강(초기화)**:
+
+```bash
+cd /home/work/vLM
+./scripts/db_init.sh
+```
+
+- **백업(실행 중에도 일관 스냅샷 생성)**:
+
+```bash
+cd /home/work/vLM
+./scripts/db_backup.sh
+```
+
+기본 백업 경로: `backups/ocr_history-<UTC타임스탬프>.db`  
+원하는 경로로 저장:
+
+```bash
+./scripts/db_backup.sh /home/work/vLM/backups/my-backup.db
+```
+
+- **복원(기존 DB 덮어쓰기 / 파괴적 작업)**: *권장: 백엔드 중지 후 실행*
+
+```bash
+cd /home/work/vLM
+./scripts/db_restore.sh /home/work/vLM/backups/ocr_history-YYYYmmdd-HHMMSS.db
+```
+
 > `database.py`에 간단한 스키마 보강(ALTER TABLE) 로직이 있어, 기존 DB에도 최소 마이그레이션이 자동 적용됩니다.
 
 ### 6.5 기본 시드 계정(개발 편의)
