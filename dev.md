@@ -729,6 +729,232 @@ React state는 비동기 업데이트라서,
     - `naturalWidth/naturalHeight`와 `displayWidth/displayHeight` 비율로 원본 좌표로 변환
     - OCR 정확도를 위해 최소 해상도(600px) 및 약간의 업스케일 적용
 
+### 13.8 “문서 미리보기/영역지정(워크스페이스) 페이지” 재구현 가이드 (처음부터 다시 만들기 전제)
+
+이 섹션은 **다른 서버/다른 프로젝트에서 동일 UX를 다시 구현**할 수 있도록, 워크스페이스(`/`)의 요구사항을 “상태 모델 + 구현 순서 + API 계약”으로 정리합니다.
+
+#### 13.8.1 구현 대상 기능(요구사항 체크리스트)
+
+- **일반 모드 / 고급 모드**
+  - 일반: “텍스트 전사(plain text)” 중심
+  - 고급: “추출 항목(key:value)” 중심 + 프롬프트/양식 기능
+- **선택영역(크롭) 미리보기**
+  - 영역별로 크롭된 이미지를 우측에 리스트/썸네일로 보여주고, OCR 실행 시 갱신
+- **OCR 결과 출력**
+  - 영역/페이지별 결과를 누적해 하나의 출력으로 보여주기
+- **추출항목 입력 및 삭제(태그 UX)**
+  - Enter로 추가, Backspace로 마지막 태그 삭제, 중복 방지, 한글 조합 입력 처리
+- **자주쓰는 양식(프리셋)**
+  - “영수증/명함/세금계산서” 같이 즉시 적용 가능한 기본 프리셋
+- **양식 저장/불러오기/삭제(서버 저장)**
+  - 추출 항목 리스트를 이름 붙여 저장하고 불러오기
+- **(선택) 고급 프롬프트 저장/불러오기/삭제(서버 저장)**
+  - 커스텀 프롬프트 텍스트를 저장/불러오기
+- **수집결과(결과 텍스트) + 절약한 시간/금액 계산**
+  - 일반: 총 글자수 기반 \( \text{minutes}=\frac{\text{totalChars}}{180} \)
+  - 고급: key:value 개수/페이지 기반 \( \text{minutes}=\frac{\text{keys} \times \text{pages} \times 10}{60} \)
+  - 금액: \( \text{money}=\frac{\text{minutes}}{60}\times \text{hourlyWage} \)
+
+#### 13.8.2 “어디를 보면 되나?” 파일/모듈 지도
+
+- **워크스페이스(미리보기/크롭/OCR/결과/절약 계산)**: `frontend/app/page.tsx`
+- **랜딩(파일 업로드 진입 상태)**: `frontend/components/LandingState.tsx`
+- **PDF 렌더링 유틸**: `frontend/utils/pdfUtils.ts`
+  - 검색 키워드: `renderPdfAllPagesToCanvases`, `getPdfPageCount`
+- **크롭(blob 추출) 유틸**: `frontend/utils/cropUtils.ts`
+  - 검색 키워드: `cropImageToBlob`
+- **OCR/양식/프롬프트 API**: `backend/main.py`
+  - 검색 키워드: `@app.post("/ocr")`, `@app.post("/extract-keys")`, `@app.post("/prompts")`, `@app.post("/history/save")`
+
+#### 13.8.3 핵심 상태 모델(프론트) — “이 구조를 그대로 따라가면 재현이 쉬움”
+
+- **문서/페이지 렌더 상태**
+  - `isPdf`, `pdfFile`, `pdfCanvases`, `currentPage`, `totalPages`, `imageSrc`
+  - 다중 파일을 지원하려면 `files`, `currentFileIndex`, `filesData(Map)`로 확장
+- **영역 저장 구조(가장 중요)**
+  - `cropAreasByPage: Map<number | undefined, CropAreaData[]>`
+    - PDF: key=페이지번호(1..N)
+    - 이미지: key=`undefined`
+  - `CropAreaData` 필드 핵심:
+    - `cropPercent` (% 좌표): **저장/복원/페이지 복사**의 기준
+    - `completedCrop` (px 좌표): 즉시 UI/미리보기 생성에 사용
+    - `pageNumber` (PDF에서 영역이 속한 페이지)
+- **선택영역 미리보기(누수 방지 중요)**
+  - `croppedPreviews: Map<string, string>` (areaId → `URL.createObjectURL(blob)` URL)
+  - 영역 삭제/재실행 시 `URL.revokeObjectURL(url)`로 정리
+- **모드/프롬프트/양식 상태**
+  - `ocrMode: 'standard' | 'advanced'`
+  - 일반 모드: `selectedLanguage`(ko/en) 기반 기본 프롬프트
+  - 고급 모드: `extractKeys: string[]`(태그), `customPrompt`(커스텀), `autoCollectFullPage`(영역 없이 전체 페이지 자동수집)
+  - 자주쓰는 양식(프리셋): `PRESETS` + `loadPreset()`
+  - 서버 저장 양식: `savedExtractKeys` + CRUD(`/extract-keys`)
+  - 서버 저장 프롬프트: `savedPrompts` + CRUD(`/prompts`)
+- **OCR 결과/저장 상태**
+  - `ocrResult: string | null` (화면에 출력되는 통합 결과)
+  - `ocrResultsData: Array<{ extracted_text, cropped_image(base64), filename, page_number|null }>` (**저장 버튼**의 입력)
+  - `processedAreasCount`, `processedPagesSet`: 절약 계산의 “실제 처리량” 추적
+  - `OCR_RESULT_STORAGE_KEY`: 새로고침에도 결과를 남기려면 localStorage 동기화
+
+#### 13.8.4 재구현 순서(추천) — 이 순서가 가장 덜 헤맵니다
+
+1) **UI 뼈대부터**
+   - 좌측: 문서 미리보기(이미지/PDF 페이지)
+   - 우측: 모드/양식/결과/액션(실행/저장) 패널
+
+2) **파일 업로드 → PDF/이미지 렌더**
+   - PDF면 `getPdfPageCount()` → `renderPdfAllPagesToCanvases()`로 모든 페이지 캔버스 생성
+   - 현재 페이지 캔버스를 `imageSrc`(dataURL)로 만들어 `<img>`에 보여주거나 `<canvas>`를 그대로 노출
+
+3) **ReactCrop으로 영역 지정 + % 좌표 저장**
+   - `onComplete`에서 `percentCrop`을 받아 `cropPercent`로 저장
+   - **저장은 %**, 실제 크롭 실행은 px(원본/표시 스케일링 포함)로 변환
+   - 편집 UX: `editingAreaId`를 두고 “오버레이 vs ReactCrop” 충돌을 방지
+
+4) **영역 리스트/편집/삭제 + (PDF) 전체 페이지 적용**
+   - 페이지 이동 시 해당 페이지에 영역이 없으면 첫 페이지 영역을 복사하는 전략(UX 안정)
+   - “전체 적용 모달”은 `pendingCropData`로 현재 crop을 캡처해 두고, 확인 시 `applyCropArea(true, cropData)`로 생성
+
+5) **선택영역 미리보기 만들기**
+   - OCR 실행 시 각 영역의 Blob을 만들고 `URL.createObjectURL(blob)`로 미리보기 URL 생성
+   - `croppedPreviews(area.id) = url`
+   - 삭제/재실행/언마운트 시 revoke(메모리 누수 방지)
+
+6) **일반/고급 모드 + 추출항목 태그 UX**
+   - `addKeyTag() / removeKeyTag()`로 태그 추가/삭제
+   - 한글 IME: `e.nativeEvent.isComposing` 및 `onCompositionStart/End` 처리 필수(Enter 오작동 방지)
+   - Backspace UX: 입력값이 비었을 때 마지막 태그 삭제
+
+7) **자주쓰는 양식(프리셋) + 양식 저장(서버)**
+   - 프리셋: `PRESETS` 상수 + `loadPreset(presetName)`
+   - 서버 저장:
+     - 최초 로드: `fetchExtractKeys()` → `GET /extract-keys`
+     - 저장: `saveExtractKeysToList(name, keys)` → `POST /extract-keys`
+     - 불러오기/삭제: `loadSavedExtractKeys(keys)` / `DELETE /extract-keys/{id}`
+
+8) **OCR 실행 파이프라인(가장 중요)**
+   - `AbortController`를 두고 “중지” 버튼에서 abort 처리
+   - **영역 OCR(기본)**:
+     - (PDF) `canvas = pdfCanvases[page-1]`에서 `cropPercent → cropArea(px)` 변환
+     - (이미지) `imgRef.current` + 표시 크기(`getBoundingClientRect`)를 `cropImageToBlob(..., displaySize)`에 전달
+     - `POST /ocr`(FormData) 호출 후 결과를 `ocrResultsData`에 누적, `ocrResult`에 문자열 누적
+   - **고급 모드 전체 자동수집(옵션)**:
+     - `ocrMode==='advanced' && autoCollectFullPage===true`면 영역 없이 페이지 전체 이미지를 그대로 `/ocr`로 전송
+
+9) **결과 출력 + 절약 계산(표시 문구 포함)**
+   - 총 글자수: 가능하면 `ocrResultsData.reduce(sum(len(extracted_text)))` 사용(정확)
+   - 일반 시간(분): `totalChars / 180`
+   - 고급 시간(분): `(extractKeys.length * 실제처리페이지수 * 10) / 60`
+   - 금액(원): `(timeSavedMinutes/60) * 10320`
+   - 출력 주석(요구사항): `(CPM - Characters Per Minute)` 포함
+
+10) **저장(History) + 크레딧 갱신**
+   - 저장은 OCR 실행과 분리(중요): OCR은 `/ocr`만 호출, **저장은 `/history/save`**에서만 수행
+   - 저장 시 `save_session_id`를 생성해 같은 세션의 페이지 차감을 중복 방지(백엔드 UNIQUE 제약)
+   - 저장 성공 후 `window.dispatchEvent(new Event('billing:refresh'))`로 Navbar 크레딧 UI 즉시 갱신
+   - 버튼 라벨: OCR 결과가 있으면 **“OCR 재실행”**, 없으면 “OCR 실행”
+
+#### 13.8.5 백엔드 API 계약(재구현에 필요한 최소 스펙)
+
+- **OCR 실행**: `POST /ocr` (multipart/form-data)
+  - 입력:
+    - `file`: (png/jpg 등 이미지 blob)
+    - `filename`: 원본 파일명
+    - `page_number`: PDF 페이지 번호(1..N), 이미지면 0 또는 생략
+    - `custom_prompt`: (선택) 커스텀 프롬프트
+  - 출력(JSON):
+    - `extracted_text`: 추출 텍스트(고급 모드면 JSON 문자열일 수 있음)
+    - `cropped_image`: base64 이미지(저장/히스토리 썸네일용)
+    - `filename`, `page_number`
+
+- **추출 항목(양식) CRUD**:
+  - `GET /extract-keys`
+  - `POST /extract-keys` body: `{ "name": string, "keys": string[] }`
+  - `DELETE /extract-keys/{id}`
+
+- **프롬프트 CRUD(선택)**:
+  - `GET /prompts`
+  - `POST /prompts` body: `{ "name": string, "prompt": string }`
+  - `DELETE /prompts/{id}`
+
+- **OCR 결과 저장(로그인 필요)**: `POST /history/save` (multipart/form-data)
+  - 헤더: `Authorization: Bearer <JWT>`
+  - 입력:
+    - `extracted_text`, `cropped_image`, `filename`, `page_number?`
+    - `user_email` (프론트에서 전달하지만, 서버는 JWT 이메일을 기준으로 필터링/저장)
+    - `save_session_id` (중복 차감 방지/파일 집계 기준)
+
+#### 13.8.6 재구현 시 자주 깨지는 포인트(실수 방지)
+
+- **% vs px 혼용**: 저장은 %(`cropPercent`), 실행은 px(스케일링 포함)로 분리하지 않으면 PDF/반응형에서 깨집니다.
+- **ObjectURL 누수**: `croppedPreviews`는 반드시 `revokeObjectURL`로 정리(삭제/재실행/언마운트).
+- **한글 태그 입력**: `isComposing` 미처리 시 Enter로 태그가 중복 추가되거나 입력이 끊깁니다.
+- **OCR과 저장 분리**: `/ocr`에서 자동 저장하면 크레딧 차감/히스토리 정책이 꼬입니다. 저장은 `/history/save` 단일 경로로 유지.
+- **“OCR 재실행” 분기**: 결과가 있을 때만 라벨/동작이 재실행 UX가 됩니다.
+
+#### 13.8.7 예상 “시간 절약 / 금액 절약” 계산기 — 작동원리와 수식(재구현용)
+
+이 계산기는 “OCR 결과를 사람이 직접 문서에서 옮겨 적거나(key:value로 정리) 하는 데 드는 시간”을 **근사치**로 환산합니다.  
+표시 위치는 워크스페이스 우측 결과 패널이며, 구현은 `frontend/app/page.tsx`의 **Money Saved Calculator** 블록(검색 키워드: `MINIMUM_WAGE_PER_HOUR`, `TYPING_CPM`, `timeSavedMinutes`, `moneySaved`)입니다.
+
+##### 13.8.7.1 공통 상수/입력값 정의
+
+- **시급(원/시간)**: \(W = 10{,}320\)  *(코드: `MINIMUM_WAGE_PER_HOUR = 10320`)*
+- **타이핑 속도(CPM)**: \(C = 180\) *(코드: `TYPING_CPM = 180`)*  
+  - 주석/문구 요구사항: **(CPM - Characters Per Minute)** / “분당 약 180타(180 CPM)”
+- **총 글자수(일반 모드에 사용)**:
+  - 1순위: `ocrResultsData[].extracted_text`의 총 길이 합
+  - 2순위(폴백): 화면에 표시되는 통합 `ocrResult` 문자열 길이
+- **키:값 개수(고급 모드에 사용)**:
+  - 현재 구현은 `extractKeys.length`를 사용(즉, 사용자가 설정한 “추출 항목 수”)
+- **실제 처리 페이지 수**
+  - 1순위: `processedPagesSet.size` (OCR 실행 중 실제로 처리된 페이지를 추적)
+  - 2순위(폴백): PDF면 `totalPages`, 이미지면 1
+
+##### 13.8.7.2 일반 모드(standard) — “총 글자수 ÷ 180CPM”
+
+일반 모드는 영역 개수보다 “실제로 입력해야 하는 글자 수”에 시간이 비례한다고 보고 계산합니다.
+
+- **절약 시간(분)**:
+  \[
+  T_{\text{min}}=\frac{\text{totalChars}}{C}
+  \]
+- **절약 금액(원)**:
+  \[
+  M=\frac{T_{\text{min}}}{60}\times W
+  \]
+- **출력 예시 문구(현재 UI 컨셉)**:
+  - `(총 글자수 N자 ÷ 180CPM  / 시급기준 10,320원)`
+  - `(CPM - Characters Per Minute)`
+
+##### 13.8.7.3 고급 모드(advanced) — “키:값 × 페이지 × 10초”
+
+고급 모드는 key:value 항목을 사람 손으로 정리/입력한다고 가정하고, “항목 1개당 페이지당 10초”로 근사합니다.
+
+- **절약 시간(초)**:
+  \[
+  T_{\text{sec}}=\text{keyCount}\times \text{pages}\times 10
+  \]
+- **절약 시간(분)**:
+  \[
+  T_{\text{min}}=\frac{T_{\text{sec}}}{60}
+  \]
+- **절약 금액(원)**:
+  \[
+  M=\frac{T_{\text{min}}}{60}\times W
+  \]
+- **주의(재구현 시 결정 포인트)**:
+  - 현재 구현의 `keyCount`는 “실제 추출된 pair 개수”가 아니라 **사용자가 지정한 추출 항목 수(`extractKeys.length`)** 입니다.  
+    “실제 pair 개수(파싱 기반)”로 바꾸려면 `extracted_text` JSON 파싱/키 개수를 세는 로직을 별도로 정의해야 합니다.
+
+##### 13.8.7.4 멀티파일/자동수집 모드에서의 처리량 산정 원칙
+
+- **멀티파일 업로드**:
+  - OCR 결과 문자열은 파일/페이지 헤더를 붙여 누적(`allResults.push(...)`)하되,
+  - 절약 계산은 가급적 `ocrResultsData` 기반(=실제 결과 단위)으로 계산하는 것이 안정적입니다.
+- **고급 모드 “페이지 전체 자동수집”**:
+  - 영역 개수 대신 페이지를 1개 결과 단위로 처리하며 `processedPagesSet`으로 실제 처리 페이지를 추적합니다.
+  - 이 경우에도 고급 모드 수식은 동일하게 적용됩니다(키:값 × 처리 페이지 × 10초).
+
 ---
 
 ## 12) 참고 파일
