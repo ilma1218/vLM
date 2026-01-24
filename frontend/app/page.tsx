@@ -2058,7 +2058,7 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: 업로드된 파일 목록 (항상 표시) */}
         {(file || files.length > 0) ? (
-          <div className="w-64 bg-white border-r border-gray-200 overflow-y-auto">
+          <div className="w-64 shrink-0 bg-white border-r border-gray-200 overflow-y-auto">
             {/* 업로드된 파일 섹션 */}
             <div className="p-4 border-b border-gray-200">
               <h2 className="text-sm font-semibold text-gray-900 mb-3">
@@ -2149,9 +2149,9 @@ export default function Home() {
         ) : null}
 
         {/* Center Canvas: Main Viewer - 2개로 분할 */}
-        <div className="flex-1 flex bg-gray-50 overflow-hidden">
-          {/* 왼쪽: 페이지 이미지 영역 (2배 확대) */}
-          <div className="flex-[2] flex flex-col bg-gray-50 overflow-hidden border-r border-gray-200">
+        <div className="flex-1 min-w-0 flex bg-gray-50 overflow-hidden">
+          {/* 왼쪽: 페이지 이미지 영역 (Crop 메인) */}
+          <div className="flex-1 min-w-0 flex flex-col bg-gray-50 overflow-hidden border-r border-gray-200">
             {/* Upload Progress */}
           {isUploading && (
               <div className="px-6 py-3 bg-white border-b border-gray-200 flex-shrink-0">
@@ -2388,8 +2388,8 @@ export default function Home() {
               )}
             </div>
 
-          {/* 오른쪽: 선택 영역 관리 섹션 (너비 축소) */}
-          <div className="w-64 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+          {/* 오른쪽: 선택 영역/페이지 미리보기(고정 폭) */}
+          <div className="w-80 shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-200 flex-shrink-0">
               <h3 className="text-sm font-semibold text-gray-900">
                 {t('crop.selectedAreas')}
@@ -2631,7 +2631,7 @@ export default function Home() {
         </div>
 
         {/* Right Inspector: Mode Selection & Prompt */}
-        <div className="w-96 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+        <div className="w-[28rem] shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
           {/* Step 1: Mode Selection (Segmented Control) */}
           <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center gap-2">
