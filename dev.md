@@ -40,6 +40,47 @@
 - **로그인/로그아웃**: 아이디/비밀번호 기반
 - **크레딧/이용내역(모달)**: Navbar에서 열 수 있는 크레딧/사용내역 UI
 
+### 2-B.1.1 다국어(i18n) 적용 구조(프론트) — 구현/확장 가이드
+
+이 프로젝트의 다국어는 Next.js 내장 i18n 라우팅이 아니라, **프론트 전역 훅 + 번역 딕셔너리** 방식입니다.
+
+- **지원 언어(드롭다운에 노출되는 5개만 유지)**
+  - `ko`(한국어), `en`(영어), `zh-CN`(중국어 간체), `ja`(일본어), `es`(스페인어)
+  - 구현 기준:
+    - 타입: `frontend/lib/i18n.ts`의 `export type Language = 'ko' | 'en' | 'ja' | 'zh-CN' | 'es'`
+    - 토글 UI: `frontend/components/LanguageToggle.tsx`의 `LANGUAGES` 배열(불필요 언어 제거 완료)
+
+- **언어 선택 → UI 반영 흐름(단일 소스)**
+  - **사용자 클릭**: `LanguageToggle`에서 `changeLanguage(lang)` 호출
+  - **저장소**: `localStorage['language']`에 언어 코드 저장
+  - **전역 상태**: `frontend/lib/i18n.ts`의 `globalLanguage`(모듈 레벨) + `languageListeners`로 전 컴포넌트에 브로드캐스트
+  - **컴포넌트 사용**: `const { t, language, changeLanguage } = useLanguage()`
+    - 렌더 시 `t('nav.home')` 같은 **번역 키 기반**으로 UI 문자열을 가져옵니다.
+
+- **메뉴명(네비게이션)도 언어 변경 시 즉시 바뀌는 이유**
+  - `Navbar`가 모든 메뉴 텍스트를 `t('nav.*')` 키로 렌더링하고(`frontend/components/Navbar.tsx`),
+  - `useLanguage()`가 언어 변경 시 상태 업데이트를 발생시켜 Navbar가 재렌더링되기 때문입니다.
+
+- **`t` 함수 안정화(깜빡임/무한 렌더 방지)**
+  - `useLanguage()`는 `t`를 `useCallback`으로 감싸 **레퍼런스를 안정화**합니다.
+  - 이게 없으면 컴포넌트의 `useEffect([t])` 같은 의존성이 불필요하게 반복 실행되어,
+    랜딩의 “최근 절약 현황” 같은 섹션이 로딩 스켈레톤으로 **깜빡이는 문제**가 발생할 수 있습니다.
+
+- **언어 코드 매핑(토글 UI)**
+  - 드롭다운 표시 값이 `en-US`처럼 들어오는 경우, 내부 지원 언어(`en`)로 매핑합니다.
+  - 구현: `LanguageToggle.tsx`의 `mapToSupportedLanguage()`
+
+- **번역 키 추가/적용 방법(재구현/확장 시)**
+  - 1) `frontend/lib/i18n.ts`의 `translations.<lang>`에 키를 추가
+  - 2) 컴포넌트에서 하드코딩 문자열을 제거하고 `t('...')`로 교체
+  - 3) 콘솔 경고: 키가 없으면 `Translation key not found: <key>`가 뜨고, 화면에는 key 문자열이 그대로 보일 수 있습니다.
+
+- **새 언어를 “정식 지원”으로 추가하려면(체크리스트)**
+  - `Language` 타입에 언어 코드 추가
+  - `translations`에 해당 언어 딕셔너리 추가
+  - `LanguageToggle.tsx`의 `LANGUAGES`에 추가 + `mapToSupportedLanguage()` 매핑 추가
+  - `useLanguage()`의 localStorage 검증 목록에 코드 추가(허용 목록)
+
 ### 2-B.2 핵심 페이지 구성(라우팅)
 - **`/` (워크스페이스)**:
   - 파일 업로드(PDF/이미지)
